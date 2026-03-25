@@ -66,29 +66,60 @@ async function fetchStockDataYahoo(symbol, days = 90) {
 
     if (!result || result.length === 0) return null;
 
-    const quotes = result.map(q => ({
-      date: q.date,
-      open: q.open,
-      high: q.high,
-      low: q.low,
-      close: q.close,
-      volume: q.volume,
-    }));
-
-    // Try to get real-time quote (non-critical — ok if it fails)
-    let quote = null;
-    try {
-      quote = await yahooFinance.quote(yahooSymbol);
-    } catch {
-      // Fall back to candle data silently
-    }
+    const quotes = result.map(q => {
+      const ratio = (q.adjClose && q.close && q.close > 0) ? q.adjClose / q.close : 1;
+      return {
+        date: q.date,
+        open: q.open * ratio,
+        high: q.high * ratio,
+        low: q.low * ratio,
+        close: q.adjClose || q.close,
+        volume: q.volume,
+      };
+    });
 
     const lastCandle = quotes[quotes.length - 1];
-    const currentPrice = quote?.regularMarketPrice || lastCandle.close;
-    const previousClose = quote?.regularMarketPreviousClose
-      || (quotes.length > 1 ? quotes[quotes.length - 2].close : lastCandle.close);
-    const dayChange = quote?.regularMarketChangePercent
-      ?? (previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0);
+    let currentPrice = lastCandle.close;
+    let currentVolume = lastCandle.volume;
+    let previousClose = quotes.length > 1 ? quotes[quotes.length - 2].close : lastCandle.close;
+    let dayHigh = lastCandle.high;
+    let dayLow = lastCandle.low;
+    let dayChange = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
+
+    // 1. Try Yahoo Finance quote
+    try {
+      const quote = await yahooFinance.quote(yahooSymbol);
+      if (quote && quote.regularMarketPrice) {
+        currentPrice = quote.regularMarketPrice;
+        currentVolume = quote.regularMarketVolume || currentVolume;
+        previousClose = quote.regularMarketPreviousClose || previousClose;
+        dayHigh = quote.regularMarketDayHigh || dayHigh;
+        dayLow = quote.regularMarketDayLow || dayLow;
+        dayChange = quote.regularMarketChangePercent ?? dayChange;
+      }
+    } catch {
+      // 2. Fallback to Google Finance Web Scraper for real-time price (bypasses Yahoo 429 blocks)
+      try {
+        const { default: axios } = await import('axios');
+        const cheerio = await import('cheerio');
+        const url = `https://www.google.com/finance/quote/${symbol}:NSE`;
+        const res = await axios.get(url, { 
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }, 
+          timeout: 4000 
+        });
+        const $ = cheerio.load(res.data);
+        const priceText = $('.YMlKec.fxKbKc').first().text();
+        if (priceText) {
+          const livePrice = parseFloat(priceText.replace(/,/g, '').replace('₹', '').trim());
+          if (livePrice > 0) {
+            currentPrice = livePrice;
+            dayChange = ((currentPrice - previousClose) / previousClose) * 100;
+          }
+        }
+      } catch (gErr) {
+        // Silently fall back to EOD candle data
+      }
+    }
 
     return {
       symbol,
@@ -143,7 +174,43 @@ export async function fetchMarketIndex(symbol = '^NSEI') {
       volume: quote.regularMarketVolume,
     };
   } catch (error) {
-    console.error(`[Yahoo] Failed to fetch index ${symbol}:`, error.message);
+    // Fallback to Google Finance Web Scraper
+    try {
+      const gSymbol = symbol === '^NSEI' ? 'NIFTY_50:INDEXNSE' 
+                    : symbol === '^BSESN' ? 'SENSEX:INDEXBOM' 
+                    : symbol === '^NSEBANK' ? 'NIFTY_BANK:INDEXNSE' : null;
+      if (gSymbol) {
+        const { default: axios } = await import('axios');
+        const cheerio = await import('cheerio');
+        const url = `https://www.google.com/finance/quote/${gSymbol}`;
+        const res = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 4000 });
+        const $ = cheerio.load(res.data);
+        const priceText = $('.YMlKec.fxKbKc').first().text();
+        const changeText = $('.JwB6zf').first().text(); // e.g. "+1.23%"
+        
+        if (priceText) {
+          const price = parseFloat(priceText.replace(/,/g, '').replace('₹', '').trim());
+          let changePercent = 0;
+          if (changeText) {
+             const match = changeText.match(/([+-]?[\d.]+)%/);
+             if (match) changePercent = parseFloat(match[1]);
+          }
+          return {
+            name: symbol === '^NSEI' ? 'Nifty 50' : symbol === '^BSESN' ? 'Sensex' : 'Bank Nifty',
+            price,
+            change: 0,
+            changePercent,
+            dayHigh: price,
+            dayLow: price,
+            volume: 0,
+          };
+        }
+      }
+    } catch (gErr) {
+      // Ignored
+    }
+
+    // console.error(`[Yahoo] Failed to fetch index ${symbol}:`, error.message);
     return null;
   }
 }
