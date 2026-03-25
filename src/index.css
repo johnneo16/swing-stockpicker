@@ -880,6 +880,8 @@ body::before {
 .score-bar-segment.price-action { background: #f59e0b; }
 .score-bar-segment.risk-reward { background: #10b981; }
 .score-bar-segment.psychology { background: #ec4899; }
+.score-bar-segment.fundamentals { background: #06b6d4; }
+.score-bar-segment.market-ctx { background: #8b5cf6; }
 
 /* === Section Divider === */
 .section-divider {
@@ -887,6 +889,117 @@ body::before {
   height: 1px;
   background: var(--border-subtle);
   margin: 14px 0;
+}
+
+/* === Fundamental Metrics Row === */
+.fundamentals-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  background: rgba(6, 182, 212, 0.05);
+  border: 1px solid rgba(6, 182, 212, 0.12);
+  border-radius: var(--radius-md);
+}
+
+.fund-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--bg-glass);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  min-width: 70px;
+}
+
+.fund-metric.wide {
+  min-width: 140px;
+}
+
+.fund-metric-label {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 3px;
+}
+
+.fund-metric-value {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.fund-metric-value.safe { color: var(--profit); }
+.fund-metric-value.danger { color: var(--loss); }
+
+/* Fundamental badge */
+.fund-badge {
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.fund-badge.excellent {
+  background: var(--profit-bg);
+  color: var(--profit);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.fund-badge.good {
+  background: rgba(6, 182, 212, 0.1);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(6, 182, 212, 0.2);
+}
+
+.fund-badge.average {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.fund-badge.weak {
+  background: var(--loss-bg);
+  color: var(--loss);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* === Auto-Refresh Toggle === */
+.auto-refresh-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.auto-refresh-toggle:hover {
+  border-color: var(--border-glow);
+  color: var(--text-secondary);
+}
+
+.auto-refresh-toggle.active {
+  border-color: rgba(16, 185, 129, 0.3);
+  color: var(--profit);
+}
+
+.countdown-text {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
 }
 
 /* === Responsive === */
@@ -912,6 +1025,8 @@ body::before {
   .sidebar { grid-template-columns: 1fr; }
   .tabs { width: 100%; }
   .tab { flex: 1; text-align: center; }
+  .fundamentals-row { gap: 6px; }
+  .fund-metric { min-width: 60px; padding: 4px 8px; }
 }
 
 /* === Validation Warnings === */
@@ -939,3 +1054,4 @@ body::before {
   text-align: center;
   padding: 12px 0;
 }
+

@@ -1,4 +1,5 @@
 import yahooFinance from 'yahoo-finance2';
+import { fetchFundamentals } from './fundamentalAnalysis.js';
 
 /**
  * Fetches historical OHLCV data for an NSE stock from Yahoo Finance.
@@ -71,14 +72,23 @@ export async function fetchMarketIndex(symbol = '^NSEI') {
 }
 
 /**
- * Batch fetch stock data for multiple symbols with concurrency control
+ * Batch fetch stock data + fundamentals for multiple symbols with concurrency control
  */
 export async function batchFetchStocks(stocks, days = 90, concurrency = 5) {
   const results = [];
   for (let i = 0; i < stocks.length; i += concurrency) {
     const batch = stocks.slice(i, i + concurrency);
     const batchResults = await Promise.allSettled(
-      batch.map(s => fetchStockData(s.symbol, days))
+      batch.map(async (s) => {
+        const [priceData, fundData] = await Promise.allSettled([
+          fetchStockData(s.symbol, days),
+          fetchFundamentals(s.symbol),
+        ]);
+        const price = priceData.status === 'fulfilled' ? priceData.value : null;
+        const fund = fundData.status === 'fulfilled' ? fundData.value : null;
+        if (!price) return null;
+        return { ...price, fundamentals: fund };
+      })
     );
     for (let j = 0; j < batchResults.length; j++) {
       if (batchResults[j].status === 'fulfilled' && batchResults[j].value) {
@@ -91,8 +101,9 @@ export async function batchFetchStocks(stocks, days = 90, concurrency = 5) {
     }
     // Small delay between batches to avoid rate limiting
     if (i + concurrency < stocks.length) {
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 800));
     }
   }
   return results;
 }
+
