@@ -1,30 +1,70 @@
 import yahooFinance from 'yahoo-finance2';
 import { fetchFundamentals } from './fundamentalAnalysis.js';
+import {
+  fetchAngelOneHistorical,
+  fetchAngelOneLTP,
+  fetchAngelOneIndex,
+  isAngelOneConfigured,
+} from './angelOneProvider.js';
+
+// Detect provider
+const USE_ANGELONE = isAngelOneConfigured();
+if (USE_ANGELONE) {
+  console.log('📡 Data Provider: Angel One SmartAPI');
+} else {
+  console.log('📡 Data Provider: Yahoo Finance (set ANGELONE_* in .env for Angel One)');
+}
+
+// ============================================================
+// Retry helper with exponential backoff
+// ============================================================
+async function withRetry(fn, maxRetries = 2, baseDelay = 2000) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const is429 = err.message?.includes('Too Many Requests') || err.message?.includes('429');
+      if (attempt < maxRetries && is429) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        console.log(`  ⏳ Rate limited, retrying in ${delay / 1000}s...`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
 
 /**
- * Fetches historical OHLCV data for an NSE stock from Yahoo Finance.
- * @param {string} symbol - NSE stock symbol (without .NS suffix)
- * @param {number} days - Number of days of history to fetch
- * @returns {Promise<Object>} - { quotes, currentPrice, volume, meta }
+ * Fetches historical OHLCV data for an NSE stock.
+ * Uses Angel One if configured, otherwise Yahoo Finance.
  */
 export async function fetchStockData(symbol, days = 90) {
+  if (USE_ANGELONE) {
+    return fetchStockDataAngelOne(symbol, days);
+  }
+  return fetchStockDataYahoo(symbol, days);
+}
+
+// ============================================================
+// Yahoo Finance Provider
+// ============================================================
+
+async function fetchStockDataYahoo(symbol, days = 90) {
   const yahooSymbol = `${symbol}.NS`;
   const period1 = new Date();
   period1.setDate(period1.getDate() - days);
 
   try {
-    // Fetch historical candles (for technical analysis) + real-time quote (for current price)
-    const [result, quote] = await Promise.all([
+    // Fetch historical first (most important), then quote separately
+    const result = await withRetry(() =>
       yahooFinance.historical(yahooSymbol, {
         period1: period1.toISOString().split('T')[0],
         interval: '1d',
-      }),
-      yahooFinance.quote(yahooSymbol).catch(() => null),
-    ]);
+      })
+    );
 
-    if (!result || result.length === 0) {
-      return null;
-    }
+    if (!result || result.length === 0) return null;
 
     const quotes = result.map(q => ({
       date: q.date,
@@ -35,8 +75,14 @@ export async function fetchStockData(symbol, days = 90) {
       volume: q.volume,
     }));
 
-    // Use real-time quote for accurate current price (last traded price)
-    // Fallback to last historical candle if quote unavailable
+    // Try to get real-time quote (non-critical — ok if it fails)
+    let quote = null;
+    try {
+      quote = await yahooFinance.quote(yahooSymbol);
+    } catch {
+      // Fall back to candle data silently
+    }
+
     const lastCandle = quotes[quotes.length - 1];
     const currentPrice = quote?.regularMarketPrice || lastCandle.close;
     const previousClose = quote?.regularMarketPreviousClose
@@ -56,17 +102,37 @@ export async function fetchStockData(symbol, days = 90) {
       dayLow: quote?.regularMarketDayLow || lastCandle.low,
     };
   } catch (error) {
-    console.error(`Failed to fetch data for ${symbol}:`, error.message);
+    console.error(`[Yahoo] Failed to fetch ${symbol}:`, error.message);
     return null;
   }
 }
 
-/**
- * Fetches quote summary for market overview (Nifty 50, etc.)
- */
-export async function fetchMarketIndex(symbol = '^NSEI') {
+// ============================================================
+// Angel One Provider
+// ============================================================
+
+async function fetchStockDataAngelOne(symbol, days = 90) {
   try {
-    const quote = await yahooFinance.quote(symbol);
+    return await fetchAngelOneHistorical(symbol, days);
+  } catch (error) {
+    console.error(`[AngelOne] Failed to fetch ${symbol}:`, error.message);
+    return null;
+  }
+}
+
+// ============================================================
+// Market Index
+// ============================================================
+
+export async function fetchMarketIndex(symbol = '^NSEI') {
+  if (USE_ANGELONE) {
+    try {
+      return await fetchAngelOneIndex(symbol);
+    } catch { /* fall back to Yahoo */ }
+  }
+
+  try {
+    const quote = await withRetry(() => yahooFinance.quote(symbol));
     return {
       name: quote.shortName || quote.longName || symbol,
       price: quote.regularMarketPrice,
@@ -77,30 +143,35 @@ export async function fetchMarketIndex(symbol = '^NSEI') {
       volume: quote.regularMarketVolume,
     };
   } catch (error) {
-    console.error(`Failed to fetch index ${symbol}:`, error.message);
+    console.error(`[Yahoo] Failed to fetch index ${symbol}:`, error.message);
     return null;
   }
 }
 
-/**
- * Batch fetch stock data + fundamentals for multiple symbols with concurrency control
- */
-export async function batchFetchStocks(stocks, days = 90, concurrency = 5) {
+// ============================================================
+// Batch Fetch — with rate limiting
+// ============================================================
+
+export async function batchFetchStocks(stocks, days = 90, concurrency = 2) {
   const results = [];
+
   for (let i = 0; i < stocks.length; i += concurrency) {
     const batch = stocks.slice(i, i + concurrency);
     const batchResults = await Promise.allSettled(
       batch.map(async (s) => {
-        const [priceData, fundData] = await Promise.allSettled([
-          fetchStockData(s.symbol, days),
-          fetchFundamentals(s.symbol),
-        ]);
-        const price = priceData.status === 'fulfilled' ? priceData.value : null;
-        const fund = fundData.status === 'fulfilled' ? fundData.value : null;
-        if (!price) return null;
-        return { ...price, fundamentals: fund };
+        const priceData = await fetchStockData(s.symbol, days);
+        if (!priceData) return null;
+
+        // Fundamentals via Yahoo (even if using Angel One for prices)
+        let fundData = null;
+        try {
+          fundData = await fetchFundamentals(s.symbol);
+        } catch { /* non-critical */ }
+
+        return { ...priceData, fundamentals: fundData };
       })
     );
+
     for (let j = 0; j < batchResults.length; j++) {
       if (batchResults[j].status === 'fulfilled' && batchResults[j].value) {
         results.push({
@@ -110,11 +181,12 @@ export async function batchFetchStocks(stocks, days = 90, concurrency = 5) {
         });
       }
     }
-    // Small delay between batches to avoid rate limiting
+
+    // Rate limit: wait 2s between batches for Yahoo, 300ms for Angel One
     if (i + concurrency < stocks.length) {
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, USE_ANGELONE ? 300 : 2000));
     }
   }
+
   return results;
 }
-

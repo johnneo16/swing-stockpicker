@@ -11,11 +11,14 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
+    "dotenv": "^17.3.1",
     "express": "^4.18.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "smartapi-javascript": "^1.0.27",
     "technicalindicators": "^3.1.0",
-    "yahoo-finance2": "^2.11.0"
+    "totp-generator": "^2.0.1",
+    "yahoo-finance2": "^2.11.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
