@@ -13,10 +13,14 @@ export async function fetchStockData(symbol, days = 90) {
   period1.setDate(period1.getDate() - days);
 
   try {
-    const result = await yahooFinance.historical(yahooSymbol, {
-      period1: period1.toISOString().split('T')[0],
-      interval: '1d',
-    });
+    // Fetch historical candles (for technical analysis) + real-time quote (for current price)
+    const [result, quote] = await Promise.all([
+      yahooFinance.historical(yahooSymbol, {
+        period1: period1.toISOString().split('T')[0],
+        interval: '1d',
+      }),
+      yahooFinance.quote(yahooSymbol).catch(() => null),
+    ]);
 
     if (!result || result.length === 0) {
       return null;
@@ -31,18 +35,25 @@ export async function fetchStockData(symbol, days = 90) {
       volume: q.volume,
     }));
 
-    const latest = quotes[quotes.length - 1];
+    // Use real-time quote for accurate current price (last traded price)
+    // Fallback to last historical candle if quote unavailable
+    const lastCandle = quotes[quotes.length - 1];
+    const currentPrice = quote?.regularMarketPrice || lastCandle.close;
+    const previousClose = quote?.regularMarketPreviousClose
+      || (quotes.length > 1 ? quotes[quotes.length - 2].close : lastCandle.close);
+    const dayChange = quote?.regularMarketChangePercent
+      ?? (previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0);
 
     return {
       symbol,
       yahooSymbol,
       quotes,
-      currentPrice: latest.close,
-      currentVolume: latest.volume,
-      previousClose: quotes.length > 1 ? quotes[quotes.length - 2].close : latest.close,
-      dayChange: quotes.length > 1
-        ? ((latest.close - quotes[quotes.length - 2].close) / quotes[quotes.length - 2].close) * 100
-        : 0,
+      currentPrice,
+      currentVolume: quote?.regularMarketVolume || lastCandle.volume,
+      previousClose,
+      dayChange,
+      dayHigh: quote?.regularMarketDayHigh || lastCandle.high,
+      dayLow: quote?.regularMarketDayLow || lastCandle.low,
     };
   } catch (error) {
     console.error(`Failed to fetch data for ${symbol}:`, error.message);
