@@ -4,22 +4,20 @@ import PortfolioSummary from './components/PortfolioSummary.jsx';
 import MarketOverview from './components/MarketOverview.jsx';
 import AlertPanel, { generateAlerts } from './components/AlertPanel.jsx';
 
-// ---- Sample / Demo Data (shown until backend is connected) ----
-// NOTE: These are ILLUSTRATIVE prices, not live market data.
-// Click "Scan Market" to fetch real-time prices from Yahoo Finance.
+// ---- Sample / Demo Data ----
 const SAMPLE_TRADES = [
   {
     symbol: 'TATAMOTORS', name: 'Tata Motors', sector: 'Auto',
     currentMarketPrice: 745.50, dayChange: 1.82,
     entryPrice: 745.50, stopLoss: 718.30, targetPrice: 813.50, riskRewardRatio: 2.5,
     riskAmount: 750, quantity: 27, capitalRequired: 20128, percentOfCapital: 40.26,
-    technicalReasoning: 'Price above EMA 20 & 50 — uptrend confirmed. RSI 54.2 — healthy momentum zone. MACD above signal — positive momentum. ADX 28 — strong trend in place.',
-    fundamentalStrength: 'PE: 8.2 | ROE: 28.5% | D/E: 1.1 | Rev Growth: 12.3%. Fundamental rating: Good (7.2/10).',
-    sentimentInsight: 'Positive momentum today (+1.82%) — market sentiment supportive',
-    institutionalActivity: 'Volume 1.34x above average — possible institutional accumulation',
+    technicalReasoning: 'Price above EMA 20 & 50 — uptrend confirmed. RSI 54.2. ADX 28 — strong trend.',
+    fundamentalStrength: 'PE: 8.2 | ROE: 28.5% | D/E: 1.1. Fundamental rating: Good (7.2/10).',
+    sentimentInsight: 'Positive momentum today (+1.82%)',
+    institutionalActivity: 'Volume 1.34x above average',
     confidenceScore: 72, riskLevel: 'Low',
-    whyThisWorks: 'Strong uptrend with aligned EMAs. ADX confirms strong trending move. Above-average volume confirmation.',
-    whyThisCanFail: 'Near resistance — potential rejection. General market risk — always use stop loss.',
+    whyThisWorks: 'Strong uptrend with aligned EMAs. ADX confirms strong trending move.',
+    whyThisCanFail: 'Near resistance — potential rejection.',
     executionStrategy: 'Trend continuation — enter on minor pullback to EMA 20',
     scoreBreakdown: { trend: 13, momentum: 14, volume: 8, priceAction: 10, riskReward: 10, psychology: 7, fundamentals: 7, marketContext: 5 },
     fundamentals: { peRatio: 8.2, roe: 28.5, debtToEquity: 1.1, revenueGrowth: 12.3, profitMargin: 7.8, marketCap: 2.5e12, fiftyTwoWeekHigh: 810, fiftyTwoWeekLow: 580, fundamentalScore: 7.2, fundamentalRating: 'Good' },
@@ -30,13 +28,13 @@ const SAMPLE_TRADES = [
     currentMarketPrice: 1642.75, dayChange: 0.94,
     entryPrice: 1642.75, stopLoss: 1598.00, targetPrice: 1755.00, riskRewardRatio: 2.51,
     riskAmount: 750, quantity: 16, capitalRequired: 26284, percentOfCapital: 52.57,
-    technicalReasoning: 'Price above EMA 20 — short-term bullish. RSI 58.7. MACD bullish crossover — fresh momentum. Bollinger Band squeeze — potential breakout imminent.',
-    fundamentalStrength: 'PE: 19.5 | ROE: 16.8% | D/E: 0.1 | Rev Growth: 18.2%. Fundamental rating: Excellent (8.5/10).',
-    sentimentInsight: 'Positive momentum today (+0.94%) — market sentiment supportive',
-    institutionalActivity: 'Volume 1.52x above average — possible institutional accumulation',
+    technicalReasoning: 'Price above EMA 20. RSI 58.7. MACD bullish crossover. BB squeeze — breakout imminent.',
+    fundamentalStrength: 'PE: 19.5 | ROE: 16.8% | D/E: 0.1. Fundamental rating: Excellent (8.5/10).',
+    sentimentInsight: 'Positive momentum today (+0.94%)',
+    institutionalActivity: 'Volume 1.52x above average',
     confidenceScore: 68, riskLevel: 'Low',
-    whyThisWorks: 'Fresh MACD crossover signal. Above-average volume confirmation. Strong fundamentals (Excellent).',
-    whyThisCanFail: 'Trend not fully aligned — conflicting signals. General market risk.',
+    whyThisWorks: 'Fresh MACD crossover. Strong fundamentals (Excellent).',
+    whyThisCanFail: 'Trend not fully aligned.',
     executionStrategy: 'Breakout entry — buy on close above resistance with volume',
     scoreBreakdown: { trend: 11, momentum: 14, volume: 9, priceAction: 8, riskReward: 10, psychology: 5, fundamentals: 8.5, marketContext: 5 },
     fundamentals: { peRatio: 19.5, roe: 16.8, debtToEquity: 0.1, revenueGrowth: 18.2, profitMargin: 32.5, marketCap: 12.4e12, fiftyTwoWeekHigh: 1780, fiftyTwoWeekLow: 1420, fundamentalScore: 8.5, fundamentalRating: 'Excellent' },
@@ -47,83 +45,91 @@ const SAMPLE_TRADES = [
     currentMarketPrice: 1285.40, dayChange: -0.35,
     entryPrice: 1285.40, stopLoss: 1252.00, targetPrice: 1369.00, riskRewardRatio: 2.5,
     riskAmount: 750, quantity: 22, capitalRequired: 28278, percentOfCapital: 56.56,
-    technicalReasoning: 'Price above EMA 20 & 50 — uptrend confirmed. RSI 48.1. Consolidating — potential breakout setup. ADX 22 — trend strengthening.',
-    fundamentalStrength: 'PE: 28.3 | ROE: 9.2% | D/E: 0.4 | Rev Growth: 8.1%. Fundamental rating: Average (5.8/10).',
-    sentimentInsight: 'Negative move today (-0.35%) — watch for reversal confirmation',
-    institutionalActivity: 'Normal volume — no significant institutional signals',
+    technicalReasoning: 'Price above EMA 20 & 50. RSI 48.1. Consolidating. ADX 22 — trend strengthening.',
+    fundamentalStrength: 'PE: 28.3 | ROE: 9.2% | D/E: 0.4. Fundamental rating: Average (5.8/10).',
+    sentimentInsight: 'Negative move today (-0.35%)',
+    institutionalActivity: 'Normal volume',
     confidenceScore: 55, riskLevel: 'Medium',
-    whyThisWorks: 'Strong uptrend with aligned EMAs. Good risk-reward near support.',
-    whyThisCanFail: 'Volume below average — weak participation. General market risk.',
+    whyThisWorks: 'Strong uptrend with aligned EMAs. Good R:R near support.',
+    whyThisCanFail: 'Volume below average.',
     executionStrategy: 'Wait for breakout — set alert at resistance level',
     scoreBreakdown: { trend: 12, momentum: 8, volume: 4, priceAction: 8, riskReward: 7, psychology: 6, fundamentals: 5.8, marketContext: 5 },
     fundamentals: { peRatio: 28.3, roe: 9.2, debtToEquity: 0.4, revenueGrowth: 8.1, profitMargin: 8.5, marketCap: 17.3e12, fiftyTwoWeekHigh: 1420, fiftyTwoWeekLow: 1100, fundamentalScore: 5.8, fundamentalRating: 'Average' },
     validationWarnings: ['Trade uses 56.56% of capital — consider reducing size'],
   },
-  {
-    symbol: 'INFY', name: 'Infosys', sector: 'IT',
-    currentMarketPrice: 1528.60, dayChange: 1.25,
-    entryPrice: 1528.60, stopLoss: 1490.00, targetPrice: 1625.15, riskRewardRatio: 2.5,
-    riskAmount: 750, quantity: 19, capitalRequired: 29043, percentOfCapital: 58.09,
-    technicalReasoning: 'RSI 42.5 — oversold bounce potential. MACD above signal. Near lower Bollinger Band — potential mean reversion.',
-    fundamentalStrength: 'PE: 24.1 | ROE: 33.2% | D/E: 0.1 | Rev Growth: 5.2%. Fundamental rating: Good (7.0/10).',
-    sentimentInsight: 'Positive momentum today (+1.25%) — market sentiment supportive',
-    institutionalActivity: 'Volume 1.18x above average — possible institutional accumulation',
-    confidenceScore: 52, riskLevel: 'Medium',
-    whyThisWorks: 'Good risk-reward near support. RSI in healthy momentum zone. Strong fundamentals (Good).',
-    whyThisCanFail: 'Trend not fully aligned. Near resistance — potential rejection.',
-    executionStrategy: 'Mean reversion — buy at lower BB with RSI oversold confirmation',
-    scoreBreakdown: { trend: 8, momentum: 10, volume: 7, priceAction: 6, riskReward: 7, psychology: 5, fundamentals: 7, marketContext: 5 },
-    fundamentals: { peRatio: 24.1, roe: 33.2, debtToEquity: 0.1, revenueGrowth: 5.2, profitMargin: 20.1, marketCap: 6.3e12, fiftyTwoWeekHigh: 1680, fiftyTwoWeekLow: 1350, fundamentalScore: 7.0, fundamentalRating: 'Good' },
-    validationWarnings: [],
-  },
-  {
-    symbol: 'SUNPHARMA', name: 'Sun Pharma', sector: 'Pharma',
-    currentMarketPrice: 1712.30, dayChange: 2.10,
-    entryPrice: 1712.30, stopLoss: 1670.00, targetPrice: 1818.05, riskRewardRatio: 2.5,
-    riskAmount: 750, quantity: 17, capitalRequired: 29109, percentOfCapital: 58.22,
-    technicalReasoning: 'Price above EMA 20 — short-term bullish. RSI 51.3. MACD above signal. Breaking out of consolidation with volume.',
-    fundamentalStrength: 'PE: 35.2 | ROE: 14.8% | D/E: 0.2 | Rev Growth: 11.5%. Fundamental rating: Good (6.5/10).',
-    sentimentInsight: 'Positive momentum today (+2.10%) — market sentiment supportive',
-    institutionalActivity: 'Volume 1.68x above average — possible institutional accumulation',
-    confidenceScore: 61, riskLevel: 'Medium',
-    whyThisWorks: 'Breakout with volume support. Above-average volume confirmation.',
-    whyThisCanFail: 'Near resistance — potential rejection. High ATR — volatile stock.',
-    executionStrategy: 'Breakout entry — buy on close above resistance with volume',
-    scoreBreakdown: { trend: 10, momentum: 11, volume: 10, priceAction: 9, riskReward: 7, psychology: 5, fundamentals: 6.5, marketContext: 5 },
-    fundamentals: { peRatio: 35.2, roe: 14.8, debtToEquity: 0.2, revenueGrowth: 11.5, profitMargin: 18.3, marketCap: 4.1e12, fiftyTwoWeekHigh: 1850, fiftyTwoWeekLow: 1240, fundamentalScore: 6.5, fundamentalRating: 'Good' },
-    validationWarnings: [],
-  },
 ];
 
 const SAMPLE_PORTFOLIO = {
-  totalCapital: 50000,
-  capitalDeployed: 37500,
-  remainingCash: 12500,
-  cashReserveTarget: 12500,
-  totalRiskExposure: 3750,
-  riskExposurePercent: 7.5,
-  activeTradeCount: 5,
-  maxTrades: 5,
-  deploymentPercent: 75,
-  sectorDistribution: { Auto: 1, Banking: 1, Energy: 1, IT: 1, Pharma: 1 },
+  totalCapital: 50000, capitalDeployed: 37500, remainingCash: 12500, cashReserveTarget: 12500,
+  totalRiskExposure: 3750, riskExposurePercent: 7.5, activeTradeCount: 3, maxTrades: 5,
+  deploymentPercent: 75, sectorDistribution: { Auto: 1, Banking: 1, Energy: 1 },
 };
 
 const SAMPLE_MARKET = {
   indices: {
     nifty50: { name: 'NIFTY 50', price: 23344.75, change: 128.45, changePercent: 0.55 },
     bankNifty: { name: 'BANK NIFTY', price: 49872.30, change: -45.80, changePercent: -0.09 },
+    sensex: { name: 'SENSEX', price: 77414.92, change: 412.50, changePercent: 0.54 },
   },
   marketMood: 'Bullish',
   isMarketOpen: false,
 };
 
-// Auto-refresh interval (60 seconds)
 const AUTO_REFRESH_INTERVAL = 60 * 1000;
 
+// ============================================================
+// Index Ticker Component
+// ============================================================
+function IndexTicker({ marketData }) {
+  const indices = marketData?.indices || {};
+
+  const renderItem = (data, label) => {
+    if (!data) return null;
+    const isUp = (data.changePercent || 0) >= 0;
+    return (
+      <div className="ticker-item" key={label}>
+        <span className="ticker-name">{label}</span>
+        <span className="ticker-price">
+          {data.price?.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+        </span>
+        <span className={`ticker-change ${isUp ? 'up' : 'down'}`}>
+          {isUp ? '▲' : '▼'} {Math.abs(data.change || 0).toFixed(2)} ({isUp ? '+' : ''}{data.changePercent?.toFixed(2)}%)
+        </span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="index-ticker">
+      {renderItem(indices.nifty50, 'NIFTY 50')}
+      <div className="ticker-divider"></div>
+      {renderItem(indices.sensex, 'SENSEX')}
+      <div className="ticker-divider"></div>
+      {renderItem(indices.bankNifty, 'BANK NIFTY')}
+      <div className="ticker-divider"></div>
+      <div className="ticker-item" style={{ opacity: 0.7 }}>
+        <span className="ticker-name">Mood</span>
+        <span className={`ticker-price`} style={{
+          color: marketData?.marketMood === 'Bullish' ? 'var(--profit)'
+            : marketData?.marketMood === 'Bearish' ? 'var(--loss)' : 'var(--warning)'
+        }}>
+          {marketData?.marketMood === 'Bullish' ? '🟢' : marketData?.marketMood === 'Bearish' ? '🔴' : '🟡'} {marketData?.marketMood || 'Unknown'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Main App
+// ============================================================
 export default function App() {
+  const [scanMode, setScanMode] = useState('stocks'); // 'stocks' | 'etf'
   const [activeTab, setActiveTab] = useState('dashboard');
   const [trades, setTrades] = useState(SAMPLE_TRADES);
+  const [etfTrades, setEtfTrades] = useState([]);
   const [portfolio, setPortfolio] = useState(SAMPLE_PORTFOLIO);
+  const [etfPortfolio, setEtfPortfolio] = useState(null);
   const [marketData, setMarketData] = useState(SAMPLE_MARKET);
   const [alerts, setAlerts] = useState([]);
   const [scanning, setScanning] = useState(false);
@@ -136,12 +142,12 @@ export default function App() {
   const autoRefreshTimer = useRef(null);
   const countdownTimer = useRef(null);
 
-  // Generate initial alerts from sample data
-  useEffect(() => {
-    setAlerts(generateAlerts(SAMPLE_TRADES));
-  }, []);
+  // Current display data based on mode
+  const activeTrades = scanMode === 'stocks' ? trades : etfTrades;
+  const activePortfolio = scanMode === 'stocks' ? portfolio : (etfPortfolio || portfolio);
 
-  // Fetch market overview
+  useEffect(() => { setAlerts(generateAlerts(SAMPLE_TRADES)); }, []);
+
   const fetchMarketOverview = useCallback(async () => {
     try {
       const res = await fetch('/api/market-overview');
@@ -150,35 +156,38 @@ export default function App() {
         setMarketData(data);
         setIsLive(true);
       }
-    } catch {
-      // Silently fall back to sample data
-    }
+    } catch { /* fall back to sample */ }
   }, []);
 
-  // Run scan
   const runScan = useCallback(async (silent = false) => {
     if (!silent) setScanning(true);
     setError(null);
     try {
-      const res = await fetch('/api/scan?refresh=true');
+      const endpoint = scanMode === 'etf' ? '/api/scan-etf?refresh=true' : '/api/scan?refresh=true';
+      const res = await fetch(endpoint);
       if (!res.ok) throw new Error('Scan failed');
       const data = await res.json();
 
       if (data.trades && data.trades.length > 0) {
         const newAlerts = generateAlerts(data.trades, previousTradesRef.current);
         previousTradesRef.current = data.trades;
-        setTrades(data.trades);
-        setPortfolio(data.portfolio);
+
+        if (scanMode === 'stocks') {
+          setTrades(data.trades);
+          setPortfolio(data.portfolio);
+        } else {
+          setEtfTrades(data.trades);
+          setEtfPortfolio(data.portfolio);
+        }
+
         setAlerts(prev => [...newAlerts, ...prev].slice(0, 30));
         setScanTime(data.scannedAt || new Date().toISOString());
         setIsLive(true);
-        // Reset countdown
         setNextRefreshIn(AUTO_REFRESH_INTERVAL / 1000);
       } else if (!silent) {
-        setError('No actionable trades found. Market may be closed or no setups meet criteria.');
+        setError(`No actionable ${scanMode === 'etf' ? 'ETF' : 'stock'} setups found. Market may be closed or no setups meet criteria.`);
       }
 
-      // Also refresh market overview
       fetchMarketOverview();
     } catch (err) {
       console.error('Scan error:', err);
@@ -188,26 +197,17 @@ export default function App() {
     } finally {
       if (!silent) setScanning(false);
     }
-  }, [fetchMarketOverview]);
+  }, [scanMode, fetchMarketOverview]);
 
-  // Auto-refresh logic
+  // Auto-refresh
   useEffect(() => {
     if (autoRefresh) {
-      // Poll every 60s (backend has its own 5-min cache)
-      autoRefreshTimer.current = setInterval(() => {
-        runScan(true);
-      }, AUTO_REFRESH_INTERVAL);
-
-      // Countdown timer
+      autoRefreshTimer.current = setInterval(() => runScan(true), AUTO_REFRESH_INTERVAL);
       setNextRefreshIn(AUTO_REFRESH_INTERVAL / 1000);
       countdownTimer.current = setInterval(() => {
-        setNextRefreshIn(prev => {
-          if (prev <= 1) return AUTO_REFRESH_INTERVAL / 1000;
-          return prev - 1;
-        });
+        setNextRefreshIn(prev => prev <= 1 ? AUTO_REFRESH_INTERVAL / 1000 : prev - 1);
       }, 1000);
     }
-
     return () => {
       if (autoRefreshTimer.current) clearInterval(autoRefreshTimer.current);
       if (countdownTimer.current) clearInterval(countdownTimer.current);
@@ -215,15 +215,13 @@ export default function App() {
     };
   }, [autoRefresh, runScan]);
 
-  // Try to connect to backend on mount
-  useEffect(() => {
-    fetchMarketOverview();
-  }, [fetchMarketOverview]);
-
-  const toggleAutoRefresh = () => setAutoRefresh(prev => !prev);
+  useEffect(() => { fetchMarketOverview(); }, [fetchMarketOverview]);
 
   return (
     <div className="app">
+      {/* Index Ticker Bar */}
+      <IndexTicker marketData={marketData} />
+
       {/* Header */}
       <header className="header">
         <div className="header-brand">
@@ -234,117 +232,91 @@ export default function App() {
           </div>
         </div>
         <div className="header-actions">
-          {/* Auto-refresh toggle */}
+          {/* Stocks / ETF toggle */}
+          <div className="mode-toggle">
+            <button className={`mode-btn ${scanMode === 'stocks' ? 'active' : ''}`} onClick={() => setScanMode('stocks')}>
+              📊 Stocks
+            </button>
+            <button className={`mode-btn ${scanMode === 'etf' ? 'active' : ''}`} onClick={() => setScanMode('etf')}>
+              📦 ETFs
+            </button>
+          </div>
+
           <button
             className={`auto-refresh-toggle ${autoRefresh ? 'active' : ''}`}
-            onClick={toggleAutoRefresh}
-            title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh (polls every 60s)'}
+            onClick={() => setAutoRefresh(prev => !prev)}
           >
             {autoRefresh ? '🔄' : '⏸️'}
             {autoRefresh ? 'Auto' : 'Manual'}
-            {autoRefresh && nextRefreshIn && (
-              <span className="countdown-text">{nextRefreshIn}s</span>
-            )}
+            {autoRefresh && nextRefreshIn && <span className="countdown-text">{nextRefreshIn}s</span>}
           </button>
 
           <div className="header-status">
             <span className={`status-dot ${scanning ? 'scanning' : isLive ? '' : 'offline'}`}></span>
             {scanning ? 'Scanning...' : isLive ? 'Live Data' : 'Sample Mode'}
           </div>
-          <button
-            className="btn-scan"
-            id="scan-button"
-            onClick={() => runScan(false)}
-            disabled={scanning}
-          >
+          <button className="btn-scan" id="scan-button" onClick={() => runScan(false)} disabled={scanning}>
             {scanning ? <span className="spinner"></span> : '🔍'}
-            {scanning ? 'Scanning Market...' : 'Scan Market'}
+            {scanning ? `Scanning ${scanMode === 'etf' ? 'ETFs' : 'Stocks'}...` : `Scan ${scanMode === 'etf' ? 'ETFs' : 'Market'}`}
           </button>
         </div>
       </header>
 
-      {/* Sample mode disclaimer */}
+      {/* Sample disclaimer */}
       {!isLive && (
         <div style={{
-          padding: '10px 16px',
-          background: 'rgba(99, 102, 241, 0.08)',
-          border: '1px solid rgba(99, 102, 241, 0.15)',
-          borderRadius: 'var(--radius-md)',
-          marginBottom: '16px',
-          fontSize: '0.82rem',
-          color: 'var(--accent-indigo)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
+          padding: '10px 16px', background: 'rgba(99, 102, 241, 0.08)',
+          border: '1px solid rgba(99, 102, 241, 0.15)', borderRadius: 'var(--radius-md)',
+          marginBottom: '16px', fontSize: '0.82rem', color: 'var(--accent-indigo)',
+          display: 'flex', alignItems: 'center', gap: '8px',
         }}>
-          ℹ️ Showing sample data for preview. Click <strong>Scan Market</strong> to fetch live prices from Yahoo Finance.
+          ℹ️ Showing sample data for preview. Click <strong>Scan {scanMode === 'etf' ? 'ETFs' : 'Market'}</strong> to fetch live prices.
         </div>
       )}
 
       {/* Tabs */}
       <div className="tabs" id="main-tabs">
         {['dashboard', 'trades', 'portfolio'].map(tab => (
-          <button
-            key={tab}
-            className={`tab ${activeTab === tab ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tab === 'dashboard' ? '📊 Dashboard' : tab === 'trades' ? '📋 All Trades' : '💼 Portfolio'}
+          <button key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
+            {tab === 'dashboard' ? '📊 Dashboard' : tab === 'trades' ? `📋 All ${scanMode === 'etf' ? 'ETFs' : 'Trades'}` : '💼 Portfolio'}
           </button>
         ))}
       </div>
 
-      {/* Error Banner */}
+      {/* Error */}
       {error && (
         <div style={{
-          padding: '12px 18px',
-          background: 'var(--warning-bg)',
-          border: '1px solid rgba(245,158,11,0.2)',
-          borderRadius: 'var(--radius-md)',
-          marginBottom: '20px',
-          fontSize: '0.85rem',
-          color: 'var(--warning)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
+          padding: '12px 18px', background: 'var(--warning-bg)', border: '1px solid rgba(245,158,11,0.2)',
+          borderRadius: 'var(--radius-md)', marginBottom: '20px', fontSize: '0.85rem',
+          color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '8px',
         }}>
           ⚠️ {error}
         </div>
       )}
 
-      {/* Dashboard Tab */}
+      {/* Dashboard */}
       {activeTab === 'dashboard' && (
         <div className="dashboard-grid">
           <div className="main-content">
             {scanning ? (
+              <>{[1,2,3].map(i => <div key={i} className="loading-skeleton skeleton-card"></div>)}</>
+            ) : activeTrades.length > 0 ? (
               <>
-                <div className="loading-skeleton skeleton-card"></div>
-                <div className="loading-skeleton skeleton-card"></div>
-                <div className="loading-skeleton skeleton-card"></div>
-              </>
-            ) : trades.length > 0 ? (
-              <>
-                {trades.slice(0, 3).map(trade => (
-                  <TradeCard key={trade.symbol} trade={trade} />
-                ))}
-                {trades.length > 3 && (
+                {activeTrades.slice(0, 3).map(trade => <TradeCard key={trade.symbol} trade={trade} />)}
+                {activeTrades.length > 3 && (
                   <div style={{ textAlign: 'center', padding: '12px' }}>
-                    <button
-                      className="tab active"
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => setActiveTab('trades')}
-                    >
-                      View all {trades.length} trades →
+                    <button className="tab active" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('trades')}>
+                      View all {activeTrades.length} {scanMode === 'etf' ? 'ETFs' : 'trades'} →
                     </button>
                   </div>
                 )}
               </>
             ) : (
               <div className="empty-state">
-                <div className="empty-icon">📈</div>
-                <div className="empty-title">No Trades Yet</div>
+                <div className="empty-icon">{scanMode === 'etf' ? '📦' : '📈'}</div>
+                <div className="empty-title">No {scanMode === 'etf' ? 'ETF Setups' : 'Trades'} Yet</div>
                 <div className="empty-text">
-                  Click "Scan Market" to analyze NSE stocks and find high-confidence swing trade setups.
+                  Click "Scan {scanMode === 'etf' ? 'ETFs' : 'Market'}" to find high-confidence swing setups.
                 </div>
               </div>
             )}
@@ -356,38 +328,38 @@ export default function App() {
             )}
           </div>
           <div className="sidebar">
-            <PortfolioSummary portfolio={portfolio} />
+            <PortfolioSummary portfolio={activePortfolio} />
             <MarketOverview marketData={marketData} />
             <AlertPanel alerts={alerts} />
           </div>
         </div>
       )}
 
-      {/* All Trades Tab */}
+      {/* All Trades / ETFs */}
       {activeTab === 'trades' && (
         <div>
-          {trades.map(trade => (
-            <TradeCard key={trade.symbol} trade={trade} />
-          ))}
-          {trades.length === 0 && (
+          {activeTrades.map(trade => <TradeCard key={trade.symbol} trade={trade} />)}
+          {activeTrades.length === 0 && (
             <div className="empty-state">
-              <div className="empty-icon">📋</div>
-              <div className="empty-title">No Trades</div>
-              <div className="empty-text">Run a market scan to discover trade setups.</div>
+              <div className="empty-icon">{scanMode === 'etf' ? '📦' : '📋'}</div>
+              <div className="empty-title">No {scanMode === 'etf' ? 'ETFs' : 'Trades'}</div>
+              <div className="empty-text">Run a scan to discover setups.</div>
             </div>
           )}
         </div>
       )}
 
-      {/* Portfolio Tab */}
+      {/* Portfolio */}
       {activeTab === 'portfolio' && (
         <div className="dashboard-grid">
           <div className="main-content">
             <div className="card" style={{ marginBottom: '20px' }}>
               <div className="card-header">
-                <div className="card-title"><span className="icon">📊</span> Active Positions</div>
+                <div className="card-title">
+                  <span className="icon">📊</span> Active {scanMode === 'etf' ? 'ETF ' : ''}Positions
+                </div>
               </div>
-              {trades.length > 0 ? (
+              {activeTrades.length > 0 ? (
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                     <thead>
@@ -401,7 +373,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {trades.map(t => (
+                      {activeTrades.map(t => (
                         <tr key={t.symbol} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                           <td style={{ padding: '12px', fontWeight: 600 }}>
                             {t.symbol}
@@ -436,7 +408,7 @@ export default function App() {
             </div>
           </div>
           <div className="sidebar">
-            <PortfolioSummary portfolio={portfolio} />
+            <PortfolioSummary portfolio={activePortfolio} />
           </div>
         </div>
       )}

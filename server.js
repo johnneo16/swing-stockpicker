@@ -4,6 +4,7 @@ import { batchFetchStocks, fetchMarketIndex } from './src/engine/dataFetcher.js'
 import { scoreStock, rankAndFilterTrades } from './src/engine/scoringEngine.js';
 import { calculatePortfolioSummary } from './src/engine/riskEngine.js';
 import STOCK_UNIVERSE from './src/engine/stockUniverse.js';
+import ETF_UNIVERSE from './src/engine/etfUniverse.js';
 
 const app = express();
 const PORT = 3001;
@@ -16,6 +17,13 @@ let scanCache = {
   data: null,
   timestamp: 0,
   CACHE_TTL: 5 * 60 * 1000, // 5 minutes
+};
+
+// ETF scan cache (separate from stocks)
+let etfScanCache = {
+  data: null,
+  timestamp: 0,
+  CACHE_TTL: 5 * 60 * 1000,
 };
 
 // Market context cache
@@ -212,9 +220,10 @@ app.get('/api/scan', async (req, res) => {
  */
 app.get('/api/market-overview', async (req, res) => {
   try {
-    const [nifty, bankNifty] = await Promise.all([
+    const [nifty, bankNifty, sensex] = await Promise.all([
       fetchMarketIndex('^NSEI'),
       fetchMarketIndex('^NSEBANK'),
+      fetchMarketIndex('^BSESN'),
     ]);
 
     const marketMood = nifty
@@ -224,7 +233,7 @@ app.get('/api/market-overview', async (req, res) => {
       : 'Unknown';
 
     res.json({
-      indices: { nifty50: nifty, bankNifty: bankNifty },
+      indices: { nifty50: nifty, bankNifty: bankNifty, sensex: sensex },
       marketMood,
       isMarketOpen: isNSEMarketHours(),
       timestamp: new Date().toISOString(),
@@ -254,6 +263,51 @@ app.get('/api/portfolio', (req, res) => {
       confidenceScore: t.confidenceScore,
     })),
   });
+});
+
+/**
+ * GET /api/scan-etf — Run ETF market scan
+ */
+app.get('/api/scan-etf', async (req, res) => {
+  try {
+    const now = Date.now();
+    const force = req.query.refresh === 'true';
+
+    if (!force && etfScanCache.data && (now - etfScanCache.timestamp) < etfScanCache.CACHE_TTL) {
+      return res.json({ ...etfScanCache.data, cached: true });
+    }
+
+    console.log(`\n[${new Date().toISOString()}] 🔍 Starting ETF scan...`);
+
+    const etfData = await batchFetchStocks(ETF_UNIVERSE, 90, 4);
+    console.log(`  📊 Fetched data for ${etfData.length}/${ETF_UNIVERSE.length} ETFs`);
+
+    const scored = etfData.map(d => {
+      try {
+        return scoreStock(d);
+      } catch (err) {
+        console.error(`  ❌ Error scoring ETF ${d.symbol}:`, err.message);
+        return null;
+      }
+    }).filter(Boolean);
+    console.log(`  🧠 Scored ${scored.length} ETFs`);
+
+    const result = rankAndFilterTrades(scored);
+    console.log(`  ✅ Selected ${result.trades.length} ETF trades`);
+
+    etfScanCache.data = result;
+    etfScanCache.timestamp = now;
+
+    res.json({
+      ...result,
+      cached: false,
+      scannedAt: new Date().toISOString(),
+      etfsAnalyzed: etfData.length,
+    });
+  } catch (error) {
+    console.error('ETF scan error:', error);
+    res.status(500).json({ error: 'ETF scan failed', message: error.message });
+  }
 });
 
 /**
