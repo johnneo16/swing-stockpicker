@@ -71,7 +71,7 @@ Six-factor weighted scoring system:
 
 SwingPro is built on a modern, decoupled Monolithic architecture optimized for high-throughput financial data processing and zero-latency technical analysis.
 
-![SwingPro Architecture](docs/screenshots/diagram-export-27-03-2026-16_09_40.png)
+![SwingPro Architecture](docs/screenshots/architecture.png)
 
 ### 🧬 Tech Stack Overview
 
