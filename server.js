@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import cors from 'cors';
 import { batchFetchStocks, fetchMarketIndex } from './src/engine/dataFetcher.js';
 import { scoreStock, rankAndFilterTrades } from './src/engine/scoringEngine.js';
@@ -8,10 +10,16 @@ import STOCK_UNIVERSE from './src/engine/stockUniverse.js';
 import ETF_UNIVERSE from './src/engine/etfUniverse.js';
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 app.use(cors());
 app.use(express.json());
+
+// Serve Vite production build
+app.use(express.static(path.join(__dirname, 'dist')));
 
 // Cache for scan results
 let scanCache = {
@@ -323,6 +331,14 @@ app.get('/api/scheduler/status', (req, res) => {
     scanCount: scheduler.scanCount,
     isMarketOpen: isNSEMarketHours(),
   });
+});
+
+// ============================================================
+// SPA Catch-all (must be after all API routes)
+// ============================================================
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 // ============================================================
