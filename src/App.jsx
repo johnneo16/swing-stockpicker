@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, startTransition } from 'react';
 import TradeCard from './components/TradeCard.jsx';
 import PortfolioSummary from './components/PortfolioSummary.jsx';
 import MarketOverview from './components/MarketOverview.jsx';
@@ -78,9 +78,9 @@ const SAMPLE_MARKET = {
 const AUTO_REFRESH_INTERVAL = 60 * 1000;
 
 // ============================================================
-// Index Ticker Component
+// Index Ticker Component (memoized for performance)
 // ============================================================
-function IndexTicker({ marketData }) {
+const IndexTicker = React.memo(function IndexTicker({ marketData }) {
   const indices = marketData?.indices || {};
 
   const renderItem = (data, label) => {
@@ -109,7 +109,7 @@ function IndexTicker({ marketData }) {
       <div className="ticker-divider"></div>
       <div className="ticker-item" style={{ opacity: 0.7 }}>
         <span className="ticker-name">Mood</span>
-        <span className={`ticker-price`} style={{
+        <span className="ticker-price" style={{
           color: marketData?.marketMood === 'Bullish' ? 'var(--profit)'
             : marketData?.marketMood === 'Bearish' ? 'var(--loss)' : 'var(--warning)'
         }}>
@@ -118,13 +118,33 @@ function IndexTicker({ marketData }) {
       </div>
     </div>
   );
-}
+});
+
+// ============================================================
+// Theme Toggle Slider — CSS pill switch with sun/moon icons
+// ============================================================
+const ThemeToggle = React.memo(function ThemeToggle({ theme, onToggle }) {
+  return (
+    <button
+      className={`theme-toggle-switch ${theme === 'light' ? 'is-light' : ''}`}
+      onClick={onToggle}
+      aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+      title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+    >
+      <span className="tts-moon" aria-hidden="true">🌙</span>
+      <span className="tts-track">
+        <span className="tts-thumb" />
+      </span>
+      <span className="tts-sun" aria-hidden="true">☀️</span>
+    </button>
+  );
+});
 
 // ============================================================
 // Main App
 // ============================================================
 export default function App() {
-  const [scanMode, setScanMode] = useState('stocks'); // 'stocks' | 'etf'
+  const [scanMode, setScanMode] = useState('stocks');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [trades, setTrades] = useState(SAMPLE_TRADES);
   const [etfTrades, setEtfTrades] = useState([]);
@@ -138,6 +158,8 @@ export default function App() {
   const [error, setError] = useState(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [nextRefreshIn, setNextRefreshIn] = useState(null);
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+
   const previousTradesRef = useRef([]);
   const autoRefreshTimer = useRef(null);
   const countdownTimer = useRef(null);
@@ -145,6 +167,18 @@ export default function App() {
   // Current display data based on mode
   const activeTrades = scanMode === 'stocks' ? trades : etfTrades;
   const activePortfolio = scanMode === 'stocks' ? portfolio : (etfPortfolio || portfolio);
+
+  // Theme sync — also update browser chrome theme-color meta tag
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    const metaTheme = document.getElementById('meta-theme-color');
+    if (metaTheme) {
+      metaTheme.setAttribute('content', theme === 'dark' ? '#0a0e1a' : '#f8fafc');
+    }
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => setTheme(prev => prev === 'dark' ? 'light' : 'dark'), []);
 
   useEffect(() => { setAlerts(generateAlerts(SAMPLE_TRADES)); }, []);
 
@@ -199,7 +233,7 @@ export default function App() {
     }
   }, [scanMode, fetchMarketOverview]);
 
-  // Auto-refresh
+  // Auto-refresh timers
   useEffect(() => {
     if (autoRefresh) {
       autoRefreshTimer.current = setInterval(() => runScan(true), AUTO_REFRESH_INTERVAL);
@@ -215,7 +249,19 @@ export default function App() {
     };
   }, [autoRefresh, runScan]);
 
+  // Fetch market overview on mount
   useEffect(() => { fetchMarketOverview(); }, [fetchMarketOverview]);
+
+  // ✅ Auto-fetch data on first DOM load (silent — no loading spinner shown)
+  useEffect(() => {
+    runScan(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // fire once on mount only
+
+  // Non-blocking tab switch using React's startTransition
+  const handleTabChange = useCallback((tab) => {
+    startTransition(() => setActiveTab(tab));
+  }, []);
 
   return (
     <div className="app">
@@ -225,10 +271,10 @@ export default function App() {
       {/* Header */}
       <header className="header">
         <div className="header-brand">
-          <div className="header-logo">S</div>
+          <img src="/logo.png" alt="SwingPro" className="header-logo" loading="eager" />
           <div>
             <h1 className="header-title">SwingPro</h1>
-            <p className="header-subtitle">AI-Powered NSE Swing Trading Platform</p>
+            <p className="header-subtitle">AI-Powered NSE Swing Trading</p>
           </div>
         </div>
         <div className="header-actions">
@@ -242,59 +288,55 @@ export default function App() {
             </button>
           </div>
 
+          {/* Light / Dark toggle */}
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
+
           <button
             className={`auto-refresh-toggle ${autoRefresh ? 'active' : ''}`}
             onClick={() => setAutoRefresh(prev => !prev)}
           >
             {autoRefresh ? '🔄' : '⏸️'}
-            {autoRefresh ? 'Auto' : 'Manual'}
+            <span className="auto-refresh-label">{autoRefresh ? 'Auto' : 'Manual'}</span>
             {autoRefresh && nextRefreshIn && <span className="countdown-text">{nextRefreshIn}s</span>}
           </button>
 
           <div className="header-status">
             <span className={`status-dot ${scanning ? 'scanning' : isLive ? '' : 'offline'}`}></span>
-            {scanning ? 'Scanning...' : isLive ? 'Live Data' : 'Sample Mode'}
+            <span className="status-text">{scanning ? 'Scanning...' : isLive ? 'Live' : 'Sample'}</span>
           </div>
+
           <button className="btn-scan" id="scan-button" onClick={() => runScan(false)} disabled={scanning}>
             {scanning ? <span className="spinner"></span> : '🔍'}
-            {scanning ? `Scanning ${scanMode === 'etf' ? 'ETFs' : 'Stocks'}...` : `Scan ${scanMode === 'etf' ? 'ETFs' : 'Market'}`}
+            {scanning ? 'Wait...' : 'Scan'}
           </button>
         </div>
       </header>
 
-      {/* Sample disclaimer */}
+      {/* Sample disclaimer — hidden once live data is fetched */}
       {!isLive && (
-        <div style={{
-          padding: '10px 16px', background: 'rgba(99, 102, 241, 0.08)',
-          border: '1px solid rgba(99, 102, 241, 0.15)', borderRadius: 'var(--radius-md)',
-          marginBottom: '16px', fontSize: '0.82rem', color: 'var(--accent-indigo)',
-          display: 'flex', alignItems: 'center', gap: '8px',
-        }}>
-          ℹ️ Showing sample data for preview. Click <strong>Scan {scanMode === 'etf' ? 'ETFs' : 'Market'}</strong> to fetch live prices.
+        <div className="info-banner">
+          ℹ️ Fetching live data… or showing sample data if backend is offline. Click{' '}
+          <strong>Scan {scanMode === 'etf' ? 'ETFs' : 'Market'}</strong> to refresh.
         </div>
       )}
 
       {/* Tabs */}
       <div className="tabs" id="main-tabs">
         {['dashboard', 'trades', 'portfolio'].map(tab => (
-          <button key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-            {tab === 'dashboard' ? '📊 Dashboard' : tab === 'trades' ? `📋 All ${scanMode === 'etf' ? 'ETFs' : 'Trades'}` : '💼 Portfolio'}
+          <button key={tab} className={`tab ${activeTab === tab ? 'active' : ''}`} onClick={() => handleTabChange(tab)}>
+            {tab === 'dashboard' ? '📊 Dashboard' : tab === 'trades' ? `📋 ${scanMode === 'etf' ? 'ETFs' : 'Trades'}` : '💼 Portfolio'}
           </button>
         ))}
       </div>
 
-      {/* Error */}
+      {/* Error banner */}
       {error && (
-        <div style={{
-          padding: '12px 18px', background: 'var(--warning-bg)', border: '1px solid rgba(245,158,11,0.2)',
-          borderRadius: 'var(--radius-md)', marginBottom: '20px', fontSize: '0.85rem',
-          color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '8px',
-        }}>
+        <div className="error-banner">
           ⚠️ {error}
         </div>
       )}
 
-      {/* Dashboard */}
+      {/* Dashboard Tab */}
       {activeTab === 'dashboard' && (
         <div className="dashboard-grid">
           <div className="main-content">
@@ -305,7 +347,7 @@ export default function App() {
                 {activeTrades.slice(0, 3).map(trade => <TradeCard key={trade.symbol} trade={trade} />)}
                 {activeTrades.length > 3 && (
                   <div style={{ textAlign: 'center', padding: '12px' }}>
-                    <button className="tab active" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('trades')}>
+                    <button className="tab active" style={{ cursor: 'pointer' }} onClick={() => handleTabChange('trades')}>
                       View all {activeTrades.length} {scanMode === 'etf' ? 'ETFs' : 'trades'} →
                     </button>
                   </div>
@@ -316,7 +358,7 @@ export default function App() {
                 <div className="empty-icon">{scanMode === 'etf' ? '📦' : '📈'}</div>
                 <div className="empty-title">No {scanMode === 'etf' ? 'ETF Setups' : 'Trades'} Yet</div>
                 <div className="empty-text">
-                  Click "Scan {scanMode === 'etf' ? 'ETFs' : 'Market'}" to find high-confidence swing setups.
+                  Click &quot;Scan {scanMode === 'etf' ? 'ETFs' : 'Market'}&quot; to find high-confidence swing setups.
                 </div>
               </div>
             )}
@@ -335,7 +377,7 @@ export default function App() {
         </div>
       )}
 
-      {/* All Trades / ETFs */}
+      {/* Trades / ETFs Tab */}
       {activeTab === 'trades' && (
         <div>
           {activeTrades.map(trade => <TradeCard key={trade.symbol} trade={trade} />)}
@@ -349,7 +391,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Portfolio */}
+      {/* Portfolio Tab */}
       {activeTab === 'portfolio' && (
         <div className="dashboard-grid">
           <div className="main-content">
@@ -360,37 +402,32 @@ export default function App() {
                 </div>
               </div>
               {activeTrades.length > 0 ? (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <div className="portfolio-table-wrapper">
+                  <table className="portfolio-table">
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                        {['Stock', 'CMP', 'Change', 'Entry', 'SL', 'Target', 'Qty', 'Capital', 'Score'].map(h => (
-                          <th key={h} style={{
-                            padding: '10px 12px', textAlign: 'left', color: 'var(--text-muted)',
-                            fontWeight: 500, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em',
-                          }}>{h}</th>
+                        {['Stock', 'CMP', 'Chg%', 'Entry', 'SL', 'Target', 'Qty', 'Capital', 'Score'].map(h => (
+                          <th key={h} className="portfolio-th">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {activeTrades.map(t => (
                         <tr key={t.symbol} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                          <td style={{ padding: '12px', fontWeight: 600 }}>
+                          <td className="portfolio-td" style={{ fontWeight: 600 }}>
                             {t.symbol}
                             <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{t.sector}</span>
                           </td>
-                          <td style={{ padding: '12px', fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>
-                            ₹{(t.currentMarketPrice || t.entryPrice).toLocaleString('en-IN')}
-                          </td>
-                          <td style={{ padding: '12px', fontFamily: 'var(--font-mono)', color: (t.dayChange || 0) >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                          <td className="portfolio-td mono-cell cyan-cell">₹{(t.currentMarketPrice || t.entryPrice).toLocaleString('en-IN')}</td>
+                          <td className="portfolio-td mono-cell" style={{ color: (t.dayChange || 0) >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
                             {(t.dayChange || 0) >= 0 ? '+' : ''}{t.dayChange || 0}%
                           </td>
-                          <td style={{ padding: '12px', fontFamily: 'var(--font-mono)' }}>₹{t.entryPrice}</td>
-                          <td style={{ padding: '12px', fontFamily: 'var(--font-mono)', color: 'var(--loss)' }}>₹{t.stopLoss}</td>
-                          <td style={{ padding: '12px', fontFamily: 'var(--font-mono)', color: 'var(--profit)' }}>₹{t.targetPrice}</td>
-                          <td style={{ padding: '12px', fontFamily: 'var(--font-mono)' }}>{t.quantity}</td>
-                          <td style={{ padding: '12px', fontFamily: 'var(--font-mono)' }}>₹{t.capitalRequired?.toLocaleString('en-IN')}</td>
-                          <td style={{ padding: '12px' }}>
+                          <td className="portfolio-td mono-cell">₹{t.entryPrice}</td>
+                          <td className="portfolio-td mono-cell loss-cell">₹{t.stopLoss}</td>
+                          <td className="portfolio-td mono-cell profit-cell">₹{t.targetPrice}</td>
+                          <td className="portfolio-td mono-cell">{t.quantity}</td>
+                          <td className="portfolio-td mono-cell">₹{t.capitalRequired?.toLocaleString('en-IN')}</td>
+                          <td className="portfolio-td">
                             <span className={`confidence-score ${t.confidenceScore >= 65 ? 'high' : t.confidenceScore >= 45 ? 'medium' : 'low'}`} style={{ fontSize: '1rem' }}>
                               {t.confidenceScore}
                             </span>
@@ -412,6 +449,18 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Mobile sticky bottom scan bar — visible only on small screens via CSS */}
+      <div className="mobile-action-bar">
+        <button className="btn-scan mobile-scan-btn" onClick={() => runScan(false)} disabled={scanning}>
+          {scanning ? <span className="spinner"></span> : '🔍'}
+          {scanning ? 'Scanning...' : `Scan ${scanMode === 'etf' ? 'ETFs' : 'Market'}`}
+        </button>
+        <div className="header-status">
+          <span className={`status-dot ${scanning ? 'scanning' : isLive ? '' : 'offline'}`}></span>
+          <span>{scanning ? 'Scanning...' : isLive ? 'Live' : 'Sample'}</span>
+        </div>
+      </div>
     </div>
   );
 }
