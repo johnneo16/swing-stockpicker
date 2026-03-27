@@ -1,13 +1,15 @@
-import React from 'react';
-import MiniChart from './MiniChart';
+import React, { Suspense } from 'react';
 
-export default function TradeCard({ trade }) {
+const MiniChart = React.lazy(() => import('./MiniChart'));
+
+const TradeCard = ({ trade }) => {
   const confidenceClass = trade.confidenceScore >= 65 ? 'high' : trade.confidenceScore >= 45 ? 'medium' : 'low';
   const fund = trade.fundamentals;
+  const hasFundamentals = fund && (fund.peRatio || fund.roe || fund.debtToEquity);
 
   return (
     <div className="trade-card" id={`trade-${trade.symbol}`}>
-      {/* Header */}
+      {/* ---- Header ---- */}
       <div className="trade-card-header">
         <div className="trade-stock-info">
           <div className="trade-stock-avatar">
@@ -17,17 +19,26 @@ export default function TradeCard({ trade }) {
             <div className="trade-stock-name">{trade.name}</div>
             <div className="trade-stock-meta">
               <span className="trade-sector-badge">{trade.sector}</span>
-              <span className={`risk-badge ${trade.riskLevel.toLowerCase()}`}>
+              <span className={`risk-badge ${trade.riskLevel?.toLowerCase()}`}>
                 {trade.riskLevel} Risk
               </span>
-              {fund && fund.fundamentalRating && (
+              {hasFundamentals && fund.fundamentalRating && (
                 <span className={`fund-badge ${fund.fundamentalRating.toLowerCase()}`}>
                   FA: {fund.fundamentalRating}
+                </span>
+              )}
+              {!hasFundamentals && (
+                <span className="fund-badge na">FA: N/A</span>
+              )}
+              {fund?.recommendationKey && (
+                <span className={`rec-badge rec-${fund.recommendationKey}`}>
+                  {formatRecommendation(fund.recommendationKey)}
                 </span>
               )}
             </div>
           </div>
         </div>
+
         <div className="trade-confidence">
           <div className={`confidence-score ${confidenceClass}`}>
             {trade.confidenceScore}
@@ -51,7 +62,7 @@ export default function TradeCard({ trade }) {
         </div>
       </div>
 
-      {/* Body */}
+      {/* ---- Body ---- */}
       <div className="trade-card-body">
         {/* Price Levels */}
         <div className="trade-levels">
@@ -89,15 +100,17 @@ export default function TradeCard({ trade }) {
           </div>
         </div>
 
-        {/* TradingView Chart Overlay */}
+        {/* Mini Chart */}
         {trade.chartData && trade.chartData.length > 0 && (
-          <div className="chart-wrapper" style={{ margin: '20px 0', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden', backgroundColor: 'var(--surface-dark)' }}>
-            <MiniChart data={trade.chartData} />
+          <div className="chart-wrapper" style={{ margin: '20px 0', border: '1px solid var(--border-subtle)', borderRadius: '12px', overflow: 'hidden', backgroundColor: 'var(--bg-glass)' }}>
+            <Suspense fallback={<div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading Chart…</div>}>
+              <MiniChart data={trade.chartData} />
+            </Suspense>
           </div>
         )}
 
         {/* Fundamental Metrics Row */}
-        {fund && (
+        {hasFundamentals ? (
           <div className="fundamentals-row">
             {fund.peRatio && (
               <div className="fund-metric">
@@ -121,7 +134,7 @@ export default function TradeCard({ trade }) {
             )}
             {fund.revenueGrowth !== null && fund.revenueGrowth !== undefined && (
               <div className="fund-metric">
-                <span className="fund-metric-label">Rev Growth</span>
+                <span className="fund-metric-label">Rev Gr.</span>
                 <span className={`fund-metric-value ${fund.revenueGrowth > 0 ? 'safe' : 'danger'}`}>
                   {fund.revenueGrowth}%
                 </span>
@@ -139,6 +152,12 @@ export default function TradeCard({ trade }) {
                 <span className="fund-metric-value">{formatMktCap(fund.marketCap)}</span>
               </div>
             )}
+            {fund.dividendYield > 0 && (
+              <div className="fund-metric">
+                <span className="fund-metric-label">Div Yld</span>
+                <span className="fund-metric-value safe">{fund.dividendYield}%</span>
+              </div>
+            )}
             {fund.fiftyTwoWeekHigh && fund.fiftyTwoWeekLow && (
               <div className="fund-metric wide">
                 <span className="fund-metric-label">52W Range</span>
@@ -147,6 +166,23 @@ export default function TradeCard({ trade }) {
                 </span>
               </div>
             )}
+            {/* Analyst consensus */}
+            {fund.targetMeanPrice && (
+              <div className="fund-metric">
+                <span className="fund-metric-label">Analyst Target</span>
+                <span className="fund-metric-value safe">₹{fund.targetMeanPrice.toFixed(0)}</span>
+              </div>
+            )}
+            {fund.numberOfAnalysts && (
+              <div className="fund-metric">
+                <span className="fund-metric-label">Analysts</span>
+                <span className="fund-metric-value">{fund.numberOfAnalysts}</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="no-fundamentals-notice">
+            📊 Technical-only setup — fundamental data unavailable for this stock via Yahoo Finance. Trade based on price action and technicals.
           </div>
         )}
 
@@ -156,7 +192,7 @@ export default function TradeCard({ trade }) {
           <div className="analysis-text">{trade.technicalReasoning}</div>
         </div>
 
-        {/* Fundamental Analysis */}
+        {/* Fundamental Analysis text */}
         <div className="analysis-section">
           <div className="analysis-title">📈 Fundamental Strength</div>
           <div className="analysis-text">{trade.fundamentalStrength}</div>
@@ -164,12 +200,12 @@ export default function TradeCard({ trade }) {
 
         {/* Sentiment */}
         <div className="analysis-section">
-          <div className="analysis-title">📰 Sentiment & Institutional</div>
+          <div className="analysis-title">📰 Sentiment &amp; Institutional</div>
           <div className="analysis-text">{trade.sentimentInsight}</div>
           <div className="analysis-text" style={{ marginTop: '6px' }}>{trade.institutionalActivity}</div>
         </div>
 
-        <div className="section-divider"></div>
+        <div className="section-divider" />
 
         {/* Why Works / Why Fails */}
         <div className="trader-insight">
@@ -195,14 +231,14 @@ export default function TradeCard({ trade }) {
         {/* Score Breakdown */}
         {trade.scoreBreakdown && (
           <div className="score-breakdown" title="Trend | Momentum | Volume | Price Action | R:R | Psychology | Fundamentals | Market">
-            <div className="score-bar-segment trend" style={{ width: `${(trade.scoreBreakdown.trend / 100) * 100}%` }}></div>
-            <div className="score-bar-segment momentum" style={{ width: `${(trade.scoreBreakdown.momentum / 100) * 100}%` }}></div>
-            <div className="score-bar-segment volume" style={{ width: `${(trade.scoreBreakdown.volume / 100) * 100}%` }}></div>
-            <div className="score-bar-segment price-action" style={{ width: `${(trade.scoreBreakdown.priceAction / 100) * 100}%` }}></div>
-            <div className="score-bar-segment risk-reward" style={{ width: `${(trade.scoreBreakdown.riskReward / 100) * 100}%` }}></div>
-            <div className="score-bar-segment psychology" style={{ width: `${(trade.scoreBreakdown.psychology / 100) * 100}%` }}></div>
-            <div className="score-bar-segment fundamentals" style={{ width: `${((trade.scoreBreakdown.fundamentals || 0) / 100) * 100}%` }}></div>
-            <div className="score-bar-segment market-ctx" style={{ width: `${((trade.scoreBreakdown.marketContext || 0) / 100) * 100}%` }}></div>
+            <div className="score-bar-segment trend" style={{ width: `${(trade.scoreBreakdown.trend / 15) * 100}%` }} />
+            <div className="score-bar-segment momentum" style={{ width: `${(trade.scoreBreakdown.momentum / 18) * 100}%` }} />
+            <div className="score-bar-segment volume" style={{ width: `${(trade.scoreBreakdown.volume / 12) * 100}%` }} />
+            <div className="score-bar-segment price-action" style={{ width: `${(trade.scoreBreakdown.priceAction / 13) * 100}%` }} />
+            <div className="score-bar-segment risk-reward" style={{ width: `${(trade.scoreBreakdown.riskReward / 12) * 100}%` }} />
+            <div className="score-bar-segment psychology" style={{ width: `${(trade.scoreBreakdown.psychology / 10) * 100}%` }} />
+            <div className="score-bar-segment fundamentals" style={{ width: `${((trade.scoreBreakdown.fundamentals || 0) / 10) * 100}%` }} />
+            <div className="score-bar-segment market-ctx" style={{ width: `${((trade.scoreBreakdown.marketContext || 0) / 10) * 100}%` }} />
           </div>
         )}
 
@@ -217,7 +253,7 @@ export default function TradeCard({ trade }) {
       </div>
     </div>
   );
-}
+};
 
 function formatMktCap(cap) {
   if (!cap) return 'N/A';
@@ -226,3 +262,16 @@ function formatMktCap(cap) {
   if (cap >= 1e7) return `₹${(cap / 1e7).toFixed(0)}Cr`;
   return `₹${cap.toLocaleString('en-IN')}`;
 }
+
+function formatRecommendation(key) {
+  const map = {
+    strongBuy: '⭐ Strong Buy',
+    buy: '↑ Buy',
+    hold: '→ Hold',
+    underperform: '↓ Underperform',
+    sell: '✗ Sell',
+  };
+  return map[key] || key;
+}
+
+export default React.memo(TradeCard);
