@@ -69,58 +69,9 @@ Six-factor weighted scoring system:
 
 ## 🏗️ System Architecture
 
-SwingPro is built on a modern, decoupled architecture optimized for financial data processing, utilizing a React frontend and an Express-powered analytical engine.
+SwingPro is built on a modern, decoupled Monolithic architecture optimized for high-throughput financial data processing and zero-latency technical analysis.
 
-```mermaid
-graph TD
-    %% Define Styles
-    classDef client fill:#1E293B,stroke:#38BDF8,stroke-width:2px,color:#F8FAFC
-    classDef server fill:#0F172A,stroke:#10B981,stroke-width:2px,color:#F8FAFC
-    classDef engine fill:#334155,stroke:#F59E0B,stroke-width:2px,color:#F8FAFC
-    classDef external fill:#475569,stroke:#EC4899,stroke-width:2px,color:#F8FAFC
-    
-    %% Client Tier
-    subgraph Client ["Client Tier (React 18 + Vite)"]
-        UI["Dashboard UI\n(Components: TradeCard, Portfolio)"]:::client
-        State["State Management\n(React Hooks + Context)"]:::client
-        UI <--> State
-    end
-
-    %% API Gateway / Controllers
-    subgraph Backend ["Backend Tier (Node.js + Express)"]
-        Router["Express Router\n(/api/scan, /api/portfolio)"]:::server
-        Cache["In-Memory Cache\n(5-min TTL)"]:::server
-        Cron["Task Scheduler\n(30-min Auto-Refresh)"]:::server
-        
-        Router --- Cache
-        Cron --> Router
-    end
-
-    %% Core Processing Engine
-    subgraph CoreEngine ["Core Alpha Engine"]
-        DataFetch["Data Aggregator\n(batchFetchStocks)"]:::engine
-        Tech["Technical Analysis\n(RSI, MACD, EMA, Bollinger)"]:::engine
-        Score["AI Scoring Engine\n(Weights: Trend 20%, Momentum 20%)"]:::engine
-        Risk["Risk Management\n(Position Sizing, Sector Limits)"]:::engine
-        
-        DataFetch --> Tech
-        Tech --> Score
-        Score --> Risk
-    end
-
-    %% External Providers
-    subgraph External ["External Data Providers"]
-        Angel["Angel One SmartAPI\n(REST OHLCV + LTP)"]:::external
-        TOTP["TOTP Auth Generator\n(Session Management)"]:::external
-    end
-
-    %% Connections
-    State <-->|REST API JSON| Router
-    Router -->|Trigger Scan| CoreEngine
-    Risk -->|Ranked Setups| Router
-    DataFetch <-->|HTTPS LTP + OHLCV| Angel
-    TOTP -->|2FA Secret| Angel
-```
+![SwingPro Architecture](docs/screenshots/architecture.png)
 
 ### 🧬 Tech Stack Overview
 
@@ -144,6 +95,23 @@ graph TD
 - **Hosting**: Render.com (Unified Node.js Monolith deployment)
 - **Routing**: SPA Catch-all (`app.get('*')` routing to static `dist/` folder)
 - **Environment Management**: `dotenv` (API Keys, Client IDs, TOTP Secrets)
+
+---
+
+## 🔮 Future Enhancements (Roadmap)
+
+To elevate SwingPro from a screener to a fully automated hedge-fund-grade AI, the following strategic upgrades are planned:
+
+1. **Automated Backtesting Engine:**
+   - Integrate a backtesting module that loops over 5 years of historical OHLCV data.
+   - Run the current EMA + RSI + MACD strategy to calculate precise historical **Win Rates**, **Max Drawdown**, and **Sharpe Ratios**.
+2. **Real-time WebSockets (L1 Data):**
+   - Upgrade the backend to connect to Angel One's WebSocket streaming APIs.
+   - Push tick-by-tick live prices directly to the React UI via Socket.io instead of relying on the 30-minute HTTP polling scheduler.
+3. **Paper Trading Sandbox:**
+   - Implement a virtual P&L tracker that automatically "buys" the selected trades and logs when stop-loss or targets are hit in real-time.
+4. **Natural Language AI Querying:**
+   - Integrate an LLM (like Gemini or OpenAI) to let users ask: *"Why didn't you pick HDFC Bank today?"* with the system parsing the historical logs to answer mathematically.
 
 ---
 
