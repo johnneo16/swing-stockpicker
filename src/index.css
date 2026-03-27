@@ -5,45 +5,49 @@
 
 /* === CSS Variables === */
 :root {
-  /* Dark mode (default) — deep navy trading terminal */
-  --bg-primary: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-card: rgba(22, 27, 34, 0.85);
-  --bg-card-hover: rgba(30, 37, 50, 0.9);
-  --bg-glass: rgba(255, 255, 255, 0.04);
-  --bg-glass-hover: rgba(255, 255, 255, 0.08);
+  /* Dark mode (default) — deep grid trading terminal */
+  --bg-primary: #0a0e14;
+  --bg-secondary: #0f141e;
+  --bg-card: #0f141e;
+  --bg-card-hover: #141a25;
+  --bg-glass: rgba(255, 255, 255, 0.02);
+  --bg-glass-hover: rgba(255, 255, 255, 0.05);
 
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-glow: rgba(99, 102, 241, 0.4);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-glow: rgba(0, 230, 118, 0.4);
 
-  --text-primary: #e6edf3;
-  --text-secondary: #8b949e;
-  --text-muted: #6e7681;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
 
-  --accent-indigo: #818cf8;
-  --accent-violet: #a78bfa;
-  --accent-cyan: #22d3ee;
+  --accent-indigo: #00e676; /* Overridden to neon green for SwingAI */
+  --accent-violet: #22d3ee; 
+  --accent-cyan: #0ea5e9;
 
-  --profit: #10b981;
-  --profit-bg: rgba(16, 185, 129, 0.12);
-  --loss: #f85149;
-  --loss-bg: rgba(248, 81, 73, 0.12);
-  --warning: #e3b341;
-  --warning-bg: rgba(227, 179, 65, 0.12);
-  --info: #58a6ff;
+  --profit: #00e676;
+  --profit-bg: rgba(0, 230, 118, 0.1);
+  --loss: #ff4d4f;
+  --loss-bg: rgba(255, 77, 79, 0.1);
+  --warning: #facc15;
+  --warning-bg: rgba(250, 204, 21, 0.1);
+  --info: #38bdf8;
 
-  /* Gradients */
-  --gradient-brand: linear-gradient(135deg, #818cf8 0%, #a78bfa 50%, #c084fc 100%);
-  --gradient-profit: linear-gradient(135deg, #10b981 0%, #34d399 100%);
-  --gradient-loss: linear-gradient(135deg, #f85149 0%, #ff7b72 100%);
-  --gradient-card: linear-gradient(145deg, rgba(22, 27, 34, 0.9) 0%, rgba(13, 17, 23, 0.7) 100%);
-  --gradient-glow: radial-gradient(ellipse at 50% 0%, rgba(99, 102, 241, 0.12) 0%, transparent 65%);
+  /* Gradients - Flattened for SwingAI */
+  --gradient-brand: linear-gradient(135deg, #00e676 0%, #10b981 100%);
+  --gradient-profit: linear-gradient(135deg, #00e676 0%, #34d399 100%);
+  --gradient-loss: linear-gradient(135deg, #ff4d4f 0%, #f43f5e 100%);
+  --gradient-card: var(--bg-card); /* flat solid backgrounds */
+  
+  /* The main faint background grid */
+  --gradient-grid-glow: 
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
 
-  /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
-  --shadow-glow: 0 0 24px rgba(99, 102, 241, 0.18);
+  /* Shadows - Toned down */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.7);
+  --shadow-glow: 0 0 15px rgba(0, 230, 118, 0.2);
 
   /* Typography */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -85,14 +89,13 @@ body {
 
 body::before {
   content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 500px;
-  background: var(--gradient-glow);
+  position: absolute; /* Not fixed, just top block or fixed behind */
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-image: var(--gradient-grid-glow);
+  background-size: 30px 30px;
   pointer-events: none;
   z-index: 0;
+  opacity: 0.6;
 }
 
 #root {
@@ -239,21 +242,25 @@ body::before {
   flex-shrink: 0;
 }
 
-.header-logo {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-glow);
-  object-fit: contain;
+.brand-logo-sq {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-indigo);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 22px;
+  color: #000;
+  box-shadow: 0 4px 12px rgba(0, 230, 118, 0.25);
 }
 
 .header-title {
   font-size: 1.5rem;
   font-weight: 700;
-  background: var(--gradient-brand);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--text-primary);
   letter-spacing: -0.02em;
 }
 
@@ -327,21 +334,20 @@ body::before {
   align-items: center;
   gap: 8px;
   padding: 10px 22px;
-  background: var(--gradient-brand);
-  border: none;
-  border-radius: var(--radius-md);
-  color: white;
+  background: transparent;
+  border: 1px solid var(--accent-indigo);
+  border-radius: calc(var(--radius-sm) - 2px);
+  color: var(--accent-indigo);
   font-family: var(--font-sans);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-base);
-  box-shadow: var(--shadow-glow);
 }
 
 .btn-scan:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 0 40px rgba(99, 102, 241, 0.3);
+  background: rgba(0, 230, 118, 0.1);
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.2);
 }
 
 .btn-scan:active { transform: translateY(0); }
@@ -435,11 +441,10 @@ body::before {
 /* === Glass Card === */
 .card {
   background: var(--gradient-card);
-  backdrop-filter: blur(20px);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   padding: 22px;
-  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+  transition: border-color var(--transition-base);
   contain: layout style;
 }
 
@@ -471,9 +476,8 @@ body::before {
 /* === Trade Card === */
 .trade-card {
   background: var(--gradient-card);
-  backdrop-filter: blur(20px);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   overflow: hidden;
   transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
   margin-bottom: 16px;

@@ -1,11 +1,17 @@
 import React, { Suspense } from 'react';
+import { 
+  BarChart2, TrendingUp, Newspaper, CheckCircle2, 
+  AlertTriangle, Target, AlertCircle, Star, ArrowUpRight, 
+  ArrowRight, ArrowDownRight, XCircle 
+} from 'lucide-react';
 
 const MiniChart = React.lazy(() => import('./MiniChart'));
 
 const TradeCard = ({ trade }) => {
   const confidenceClass = trade.confidenceScore >= 65 ? 'high' : trade.confidenceScore >= 45 ? 'medium' : 'low';
   const fund = trade.fundamentals;
-  const hasFundamentals = fund && (fund.peRatio || fund.roe || fund.debtToEquity);
+  // Determine if we have any valid fundamental data at all.
+  const hasFundamentals = fund && (fund.peRatio || fund.roe || fund.marketCap);
 
   return (
     <div className="trade-card" id={`trade-${trade.symbol}`}>
@@ -112,16 +118,22 @@ const TradeCard = ({ trade }) => {
         {/* Fundamental Metrics Row */}
         {hasFundamentals ? (
           <div className="fundamentals-row">
-            {fund.peRatio && (
+            {fund.peRatio !== null && (
               <div className="fund-metric">
                 <span className="fund-metric-label">PE</span>
                 <span className="fund-metric-value">{fund.peRatio.toFixed(1)}</span>
               </div>
             )}
-            {fund.roe !== null && fund.roe !== undefined && (
+            {fund.roe !== null && (
               <div className="fund-metric">
                 <span className="fund-metric-label">ROE</span>
                 <span className="fund-metric-value">{fund.roe}%</span>
+              </div>
+            )}
+            {fund.roce !== null && fund.roce !== undefined && (
+              <div className="fund-metric">
+                <span className="fund-metric-label">ROCE</span>
+                <span className="fund-metric-value">{fund.roce}%</span>
               </div>
             )}
             {fund.debtToEquity !== null && fund.debtToEquity !== undefined && (
@@ -146,7 +158,7 @@ const TradeCard = ({ trade }) => {
                 <span className="fund-metric-value">{fund.profitMargin}%</span>
               </div>
             )}
-            {fund.marketCap && (
+            {fund.marketCap > 0 && (
               <div className="fund-metric">
                 <span className="fund-metric-label">Mkt Cap</span>
                 <span className="fund-metric-value">{formatMktCap(fund.marketCap)}</span>
@@ -158,7 +170,7 @@ const TradeCard = ({ trade }) => {
                 <span className="fund-metric-value safe">{fund.dividendYield}%</span>
               </div>
             )}
-            {fund.fiftyTwoWeekHigh && fund.fiftyTwoWeekLow && (
+            {fund.fiftyTwoWeekHigh !== null && fund.fiftyTwoWeekLow !== null && (
               <div className="fund-metric wide">
                 <span className="fund-metric-label">52W Range</span>
                 <span className="fund-metric-value">
@@ -182,25 +194,25 @@ const TradeCard = ({ trade }) => {
           </div>
         ) : (
           <div className="no-fundamentals-notice">
-            📊 Technical-only setup — fundamental data unavailable for this stock via Yahoo Finance. Trade based on price action and technicals.
+            <BarChart2 size={16} className="inline-icon" /> Technical-only setup — fundamental data unavailable for this stock via Screener. Trade based on price action and technicals.
           </div>
         )}
 
         {/* Technical Analysis */}
         <div className="analysis-section">
-          <div className="analysis-title">📊 Technical Reasoning</div>
+          <div className="analysis-title"><BarChart2 size={16} className="title-icon" /> Technical Reasoning</div>
           <div className="analysis-text">{trade.technicalReasoning}</div>
         </div>
 
         {/* Fundamental Analysis text */}
         <div className="analysis-section">
-          <div className="analysis-title">📈 Fundamental Strength</div>
+          <div className="analysis-title"><TrendingUp size={16} className="title-icon" /> Fundamental Strength</div>
           <div className="analysis-text">{trade.fundamentalStrength}</div>
         </div>
 
         {/* Sentiment */}
         <div className="analysis-section">
-          <div className="analysis-title">📰 Sentiment &amp; Institutional</div>
+          <div className="analysis-title"><Newspaper size={16} className="title-icon" /> Sentiment & Institutional</div>
           <div className="analysis-text">{trade.sentimentInsight}</div>
           <div className="analysis-text" style={{ marginTop: '6px' }}>{trade.institutionalActivity}</div>
         </div>
@@ -210,18 +222,18 @@ const TradeCard = ({ trade }) => {
         {/* Why Works / Why Fails */}
         <div className="trader-insight">
           <div className="insight-box why-works">
-            <div className="insight-title">✅ Why this works</div>
+            <div className="insight-title"><CheckCircle2 size={16} className="title-icon" /> Why this works</div>
             <div className="insight-text">{trade.whyThisWorks}</div>
           </div>
           <div className="insight-box why-fails">
-            <div className="insight-title">⚠️ Why this can fail</div>
+            <div className="insight-title"><AlertTriangle size={16} className="title-icon" /> Why this can fail</div>
             <div className="insight-text">{trade.whyThisCanFail}</div>
           </div>
         </div>
 
         {/* Execution Strategy */}
         <div className="execution-bar">
-          <span className="execution-icon">🎯</span>
+          <span className="execution-icon"><Target size={20} /></span>
           <div>
             <div className="execution-label">Execution Strategy</div>
             <div className="execution-text">{trade.executionStrategy}</div>
@@ -246,7 +258,7 @@ const TradeCard = ({ trade }) => {
         {trade.validationWarnings && trade.validationWarnings.length > 0 && (
           <div className="validation-warnings">
             {trade.validationWarnings.map((w, i) => (
-              <div key={i} className="validation-warning">⚠️ {w}</div>
+              <div key={i} className="validation-warning"><AlertCircle size={14} className="inline-icon" /> {w}</div>
             ))}
           </div>
         )}
@@ -265,11 +277,11 @@ function formatMktCap(cap) {
 
 function formatRecommendation(key) {
   const map = {
-    strongBuy: '⭐ Strong Buy',
-    buy: '↑ Buy',
-    hold: '→ Hold',
-    underperform: '↓ Underperform',
-    sell: '✗ Sell',
+    strongBuy: <><Star size={12} className="inline-icon"/> Strong Buy</>,
+    buy: <><ArrowUpRight size={12} className="inline-icon"/> Buy</>,
+    hold: <><ArrowRight size={12} className="inline-icon"/> Hold</>,
+    underperform: <><ArrowDownRight size={12} className="inline-icon"/> Underperform</>,
+    sell: <><XCircle size={12} className="inline-icon"/> Sell</>,
   };
   return map[key] || key;
 }

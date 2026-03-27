@@ -1,4 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, startTransition } from 'react';
+import { 
+  Activity, BarChart3, Package, RefreshCw, Pause, Search, AlertCircle, 
+  Briefcase, CheckCircle2, XCircle, TrendingUp, TrendingDown, Target, 
+  ArrowUpRight, ArrowDownRight, Sun, Moon, Info, ShieldAlert
+} from 'lucide-react';
 import TradeCard from './components/TradeCard.jsx';
 import PortfolioSummary from './components/PortfolioSummary.jsx';
 import MarketOverview from './components/MarketOverview.jsx';
@@ -39,7 +44,8 @@ const IndexTicker = React.memo(function IndexTicker({ marketData }) {
           {data.price?.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
         </span>
         <span className={`ticker-change ${isUp ? 'up' : 'down'}`}>
-          {isUp ? '▲' : '▼'} {Math.abs(data.change || 0).toFixed(2)} ({isUp ? '+' : ''}{data.changePercent?.toFixed(2)}%)
+          {isUp ? <TrendingUp size={12} className="inline-icon" /> : <TrendingDown size={12} className="inline-icon" />} 
+          {' '}{Math.abs(data.change || 0).toFixed(2)} ({isUp ? '+' : ''}{data.changePercent?.toFixed(2)}%)
         </span>
       </div>
     );
@@ -56,10 +62,13 @@ const IndexTicker = React.memo(function IndexTicker({ marketData }) {
       <div className="ticker-item" style={{ opacity: 0.8 }}>
         <span className="ticker-name">Mood</span>
         <span className="ticker-price" style={{
+          display: 'flex', alignItems: 'center', gap: '4px',
           color: marketData?.marketMood === 'Bullish' ? 'var(--profit)'
             : marketData?.marketMood === 'Bearish' ? 'var(--loss)' : 'var(--warning)'
         }}>
-          {marketData?.marketMood === 'Bullish' ? '🟢' : marketData?.marketMood === 'Bearish' ? '🔴' : '🟡'} {marketData?.marketMood || 'Unknown'}
+          {marketData?.marketMood === 'Bullish' ? <div className="status-dot scanning"/> 
+            : marketData?.marketMood === 'Bearish' ? <div className="status-dot offline"/> : <div className="status-dot warning"/>}
+          {' '}{marketData?.marketMood || 'Unknown'}
         </span>
       </div>
     </div>
@@ -67,7 +76,7 @@ const IndexTicker = React.memo(function IndexTicker({ marketData }) {
 });
 
 // ============================================================
-// Theme Toggle — CSS pill switch with sun/moon
+// Theme Toggle
 // ============================================================
 const ThemeToggle = React.memo(function ThemeToggle({ theme, onToggle }) {
   return (
@@ -77,11 +86,9 @@ const ThemeToggle = React.memo(function ThemeToggle({ theme, onToggle }) {
       aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
       title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
     >
-      <span className="tts-moon" aria-hidden="true">🌙</span>
-      <span className="tts-track">
-        <span className="tts-thumb" />
-      </span>
-      <span className="tts-sun" aria-hidden="true">☀️</span>
+      <span className="tts-moon" aria-hidden="true"><Moon size={12} /></span>
+      <span className="tts-track"><span className="tts-thumb" /></span>
+      <span className="tts-sun" aria-hidden="true"><Sun size={12} /></span>
     </button>
   );
 });
@@ -93,7 +100,6 @@ export default function App() {
   const [scanMode, setScanMode] = useState('stocks');
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  // ✅ Issue 1 Fix: Start with empty arrays — NO pre-filled sample data
   const [trades, setTrades] = useState([]);
   const [etfTrades, setEtfTrades] = useState([]);
   const [portfolio, setPortfolio] = useState(FALLBACK_PORTFOLIO);
@@ -101,7 +107,6 @@ export default function App() {
   const [marketData, setMarketData] = useState(SAMPLE_MARKET);
   const [alerts, setAlerts] = useState([]);
 
-  // 'loading' = initial fetch in progress, true = live data, false = backend offline
   const [isLive, setIsLive] = useState('loading');
   const [scanning, setScanning] = useState(false);
   const [initialLoad, setInitialLoad] = useState(true);
@@ -118,13 +123,13 @@ export default function App() {
   const activeTrades = scanMode === 'stocks' ? trades : etfTrades;
   const activePortfolio = scanMode === 'stocks' ? portfolio : (etfPortfolio || portfolio);
 
-  // Theme sync + update browser chrome theme-color
+  // Theme sync
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
     const metaTheme = document.getElementById('meta-theme-color');
     if (metaTheme) {
-      metaTheme.setAttribute('content', theme === 'dark' ? '#0d1117' : '#f0f3fa');
+      metaTheme.setAttribute('content', theme === 'dark' ? '#0a0e14' : '#f0f3fa');
     }
   }, [theme]);
 
@@ -137,7 +142,7 @@ export default function App() {
         const data = await res.json();
         setMarketData(data);
       }
-    } catch { /* keep sample market data */ }
+    } catch { /* keep sample */ }
   }, []);
 
   const runScan = useCallback(async (silent = false) => {
@@ -166,13 +171,11 @@ export default function App() {
         setIsLive(true);
         setNextRefreshIn(AUTO_REFRESH_INTERVAL / 1000);
       } else if (!silent) {
-        // No trades returned but server connected
         setIsLive(false);
         setError(`No actionable ${scanMode === 'etf' ? 'ETF' : 'stock'} setups found right now. Market may be closed or no setups meet criteria.`);
       } else {
         setIsLive(false);
       }
-
       fetchMarketOverview();
     } catch {
       setIsLive(false);
@@ -201,10 +204,8 @@ export default function App() {
     };
   }, [autoRefresh, runScan]);
 
-  // Market overview on mount
   useEffect(() => { fetchMarketOverview(); }, [fetchMarketOverview]);
 
-  // ✅ Auto-fetch on first DOM load — silent (no spinner), but sets initialLoad
   useEffect(() => {
     runScan(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -217,7 +218,6 @@ export default function App() {
   const handleScanModeChange = useCallback((mode) => {
     setScanMode(mode);
     setInitialLoad(true);
-    // Re-scan in the new mode
     setTimeout(() => setInitialLoad(false), 0);
   }, []);
 
@@ -231,7 +231,9 @@ export default function App() {
       <header className="header">
         {/* Zone 1: Brand */}
         <div className="header-brand">
-          <img src="/logo.png" alt="SwingPro" className="header-logo" loading="eager" />
+          <div className="brand-logo-sq">
+            <span>S</span>
+          </div>
           <div>
             <h1 className="header-title">SwingPro</h1>
             <p className="header-subtitle">AI-Powered NSE Swing Trading</p>
@@ -244,13 +246,13 @@ export default function App() {
             className={`mode-btn ${scanMode === 'stocks' ? 'active' : ''}`}
             onClick={() => handleScanModeChange('stocks')}
           >
-            📊 Stocks
+            <BarChart3 size={14} className="inline-icon" /> Stocks
           </button>
           <button
             className={`mode-btn ${scanMode === 'etf' ? 'active' : ''}`}
             onClick={() => handleScanModeChange('etf')}
           >
-            📦 ETFs
+            <Package size={14} className="inline-icon" /> ETFs
           </button>
         </div>
 
@@ -263,7 +265,7 @@ export default function App() {
             onClick={() => setAutoRefresh(prev => !prev)}
             title={autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF'}
           >
-            <span>{autoRefresh ? '🔄' : '⏸️'}</span>
+            {autoRefresh ? <RefreshCw size={14} className="spin-icon" /> : <Pause size={14} />}
             <span className="auto-refresh-label">{autoRefresh ? 'Auto' : 'Manual'}</span>
             {autoRefresh && nextRefreshIn && <span className="countdown-text">{nextRefreshIn}s</span>}
           </button>
@@ -281,7 +283,7 @@ export default function App() {
             onClick={() => runScan(false)}
             disabled={scanning || isLoading}
           >
-            {scanning ? <span className="spinner" /> : <span>🔍</span>}
+            {scanning ? <span className="spinner" /> : <Search size={16} />}
             <span>{scanning ? 'Scanning…' : `Scan ${scanMode === 'etf' ? 'ETFs' : 'Market'}`}</span>
           </button>
         </div>
@@ -290,22 +292,27 @@ export default function App() {
       {/* ---- Status sub-bar ---- */}
       {scanTime && (
         <div className="status-bar">
-          <span>Last scan: {new Date(scanTime).toLocaleString('en-IN')}</span>
-          <span>{marketData?.isMarketOpen ? '🟢 Market Open' : '🔴 Market Closed'}</span>
+          <span className="status-item">
+            <RefreshCw size={12} className="inline-icon text-muted" /> Last scan: {new Date(scanTime).toLocaleString('en-IN')}
+          </span>
+          <span className="status-item">
+            <div className={`status-dot ${marketData?.isMarketOpen ? '' : 'offline'}`} /> 
+            {marketData?.isMarketOpen ? 'NSE Market Open' : 'NSE Market Closed'}
+          </span>
         </div>
       )}
 
       {/* ---- Error banner ---- */}
       {error && !isLoading && (
         <div className="error-banner">
-          ⚠️ {error}
+          <ShieldAlert size={16} className="inline-icon" /> {error}
         </div>
       )}
 
-      {/* ---- Offline notice when backend not ready ---- */}
+      {/* ---- Offline notice ---- */}
       {!isLoading && isLive === false && !error && (
         <div className="info-banner">
-          ℹ️ Backend offline — showing empty dashboard. Start the server (<code>node server.js</code>) and click <strong>Scan</strong>.
+          <Info size={16} className="inline-icon" /> Backend offline — showing empty dashboard. Start the server (<code>node server.js</code>) and click <strong>Scan</strong>.
         </div>
       )}
 
@@ -317,9 +324,9 @@ export default function App() {
             className={`tab ${activeTab === tab ? 'active' : ''}`}
             onClick={() => handleTabChange(tab)}
           >
-            {tab === 'dashboard' ? '📊 Dashboard'
-              : tab === 'trades' ? `📋 ${scanMode === 'etf' ? 'ETFs' : 'Trades'}${activeTrades.length > 0 ? ` (${activeTrades.length})` : ''}`
-              : '💼 Portfolio'}
+            {tab === 'dashboard' ? <><Activity size={14} className="tab-icon"/> Dashboard</>
+              : tab === 'trades' ? <><BarChart3 size={14} className="tab-icon"/> {scanMode === 'etf' ? 'ETFs' : 'Trade Setups'}{activeTrades.length > 0 ? ` (${activeTrades.length})` : ''}</>
+              : <><Briefcase size={14} className="tab-icon"/> Portfolio</>}
           </button>
         ))}
       </div>
@@ -329,22 +336,22 @@ export default function App() {
         <div className="dashboard-grid">
           <div className="main-content">
             {isLoading ? (
-              // ✅ Show skeleton during initial load — NOT sample data
-              <>{[1, 2, 3].map(i => <div key={i} className="loading-skeleton skeleton-card" />)}</>
+              <>{[1, 2, 3, 4, 5].map(i => <div key={i} className="loading-skeleton skeleton-card" />)}</>
             ) : activeTrades.length > 0 ? (
               <>
-                {activeTrades.slice(0, 3).map(trade => <TradeCard key={trade.symbol} trade={trade} />)}
-                {activeTrades.length > 3 && (
+                {/* 5-STOCK LAYOUT FIX */}
+                {activeTrades.slice(0, 5).map(trade => <TradeCard key={trade.symbol} trade={trade} />)}
+                {activeTrades.length > 5 && (
                   <div style={{ textAlign: 'center', padding: '12px' }}>
                     <button className="btn-view-all" onClick={() => handleTabChange('trades')}>
-                      View all {activeTrades.length} {scanMode === 'etf' ? 'ETFs' : 'trades'} →
+                      View all {activeTrades.length} {scanMode === 'etf' ? 'ETFs' : 'trades'} <ArrowUpRight size={14} className="inline-icon" />
                     </button>
                   </div>
                 )}
               </>
             ) : (
               <div className="empty-state">
-                <div className="empty-icon">{scanMode === 'etf' ? '📦' : '📈'}</div>
+                <div className="empty-icon"><Search size={48} className="text-muted" strokeWidth={1}/></div>
                 <div className="empty-title">No {scanMode === 'etf' ? 'ETF Setups' : 'Trade Setups'} Found</div>
                 <div className="empty-text">
                   {isLive === false
@@ -352,7 +359,7 @@ export default function App() {
                     : 'Market may be closed or no setups meet the current criteria. Try scanning during market hours (9:15 AM – 3:30 PM IST).'}
                 </div>
                 <button className="btn-scan" style={{ marginTop: '20px' }} onClick={() => runScan(false)} disabled={scanning}>
-                  {scanning ? <span className="spinner" /> : '🔍'} {scanning ? 'Scanning…' : `Scan ${scanMode === 'etf' ? 'ETFs' : 'Market'}`}
+                  {scanning ? <span className="spinner" /> : <Search size={16} />} {scanning ? 'Scanning…' : `Scan ${scanMode === 'etf' ? 'ETFs' : 'Market'}`}
                 </button>
               </div>
             )}
@@ -376,12 +383,12 @@ export default function App() {
       {activeTab === 'trades' && (
         <div>
           {isLoading ? (
-            <>{[1, 2, 3].map(i => <div key={i} className="loading-skeleton skeleton-card" />)}</>
+            <>{[1, 2, 3, 4, 5].map(i => <div key={i} className="loading-skeleton skeleton-card" />)}</>
           ) : activeTrades.length > 0 ? (
             activeTrades.map(trade => <TradeCard key={trade.symbol} trade={trade} />)
           ) : (
             <div className="empty-state">
-              <div className="empty-icon">{scanMode === 'etf' ? '📦' : '📋'}</div>
+              <div className="empty-icon"><BarChart3 size={48} className="text-muted" strokeWidth={1} /></div>
               <div className="empty-title">No {scanMode === 'etf' ? 'ETF' : 'Trade'} Setups</div>
               <div className="empty-text">Run a scan to discover actionable swing setups.</div>
             </div>
@@ -396,7 +403,7 @@ export default function App() {
             <div className="card" style={{ marginBottom: '20px' }}>
               <div className="card-header">
                 <div className="card-title">
-                  <span className="icon">📊</span> Active {scanMode === 'etf' ? 'ETF ' : ''}Positions
+                  <span className="icon"><Briefcase size={16} className="inline-icon text-accent" /></span> Active {scanMode === 'etf' ? 'ETF ' : ''}Positions
                 </div>
               </div>
               {activeTrades.length > 0 ? (
@@ -451,7 +458,7 @@ export default function App() {
       {/* Mobile sticky bottom bar */}
       <div className="mobile-action-bar">
         <button className="btn-scan mobile-scan-btn" onClick={() => runScan(false)} disabled={scanning || isLoading}>
-          {scanning ? <span className="spinner" /> : '🔍'}
+          {scanning ? <span className="spinner" /> : <Search size={16} />}
           {scanning ? 'Scanning…' : `Scan ${scanMode === 'etf' ? 'ETFs' : 'Market'}`}
         </button>
         <div className="header-status">

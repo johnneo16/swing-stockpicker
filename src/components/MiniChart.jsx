@@ -69,7 +69,24 @@ const MiniChart = ({ data }) => {
       window.addEventListener('resize', handleResize);
       requestAnimationFrame(handleResize);
 
+      // --- Dynamic Theme Observer ---
+      const applyTheme = () => {
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        chart.applyOptions({
+          layout: { textColor: isLight ? '#475569' : '#CBD5E1' },
+          grid: {
+            vertLines: { color: isLight ? 'rgba(148, 163, 184, 0.3)' : 'rgba(51, 65, 85, 0.4)' },
+            horzLines: { color: isLight ? 'rgba(148, 163, 184, 0.3)' : 'rgba(51, 65, 85, 0.4)' },
+          },
+        });
+      };
+      applyTheme(); // Set immediately on mount
+
+      const observer = new MutationObserver(applyTheme);
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
       return () => {
+        observer.disconnect();
         window.removeEventListener('resize', handleResize);
         chart.remove();
       };
@@ -86,4 +103,4 @@ const MiniChart = ({ data }) => {
   return <div ref={chartContainerRef} style={{ width: '100%', height: '100%', minHeight: '220px', position: 'relative' }} />;
 };
 
-export default MiniChart;
+export default React.memo(MiniChart);

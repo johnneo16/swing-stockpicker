@@ -1,10 +1,21 @@
 import React from 'react';
+import { Bell, Sparkles, Flame, AlertTriangle, BarChart2 } from 'lucide-react';
 
 export default function AlertPanel({ alerts }) {
+  const getIcon = (type) => {
+    switch (type) {
+      case 'new': return <Sparkles size={16} className="text-accent" />;
+      case 'high-confidence': return <Flame size={16} style={{ color: 'var(--profit)' }} />;
+      case 'warning': return <AlertTriangle size={16} style={{ color: 'var(--warning)' }} />;
+      case 'info': return <BarChart2 size={16} className="text-muted" />;
+      default: return <Bell size={16} />;
+    }
+  };
+
   return (
     <div className="card" id="alert-panel">
       <div className="card-header">
-        <div className="card-title"><span className="icon">🔔</span> Alerts</div>
+        <div className="card-title"><span className="icon"><Bell size={16} className="inline-icon text-accent"/></span> Alerts</div>
         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
           {alerts.length} signal{alerts.length !== 1 ? 's' : ''}
         </span>
@@ -18,7 +29,9 @@ export default function AlertPanel({ alerts }) {
         <div className="alert-list">
           {alerts.map((alert, i) => (
             <div key={i} className="alert-item">
-              <span className="alert-icon">{alert.icon}</span>
+              <span className="alert-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {getIcon(alert.type)}
+              </span>
               <div className="alert-content">
                 <div className="alert-title">{alert.title}</div>
                 <div className="alert-message">{alert.message}</div>

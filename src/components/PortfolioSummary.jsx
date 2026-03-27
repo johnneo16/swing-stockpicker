@@ -1,4 +1,5 @@
 import React from 'react';
+import { Briefcase, TrendingUp, Banknote, Target, Zap, BarChart2 } from 'lucide-react';
 
 export default function PortfolioSummary({ portfolio }) {
   if (!portfolio) return null;
@@ -8,7 +9,7 @@ export default function PortfolioSummary({ portfolio }) {
   return (
     <div className="card portfolio-card" id="portfolio-summary">
       <div className="card-header">
-        <div className="card-title"><span className="icon">💰</span> Portfolio</div>
+        <div className="card-title"><span className="icon"><Briefcase size={16} className="inline-icon text-accent"/></span> Portfolio Dashboard</div>
       </div>
 
       <div className="portfolio-total">
@@ -18,35 +19,35 @@ export default function PortfolioSummary({ portfolio }) {
 
       <div className="portfolio-stats">
         <div className="portfolio-stat">
-          <span className="portfolio-stat-label">📈 Deployed</span>
+          <span className="portfolio-stat-label"><TrendingUp size={14} className="inline-icon"/> Deployed</span>
           <span className="portfolio-stat-value" style={{ color: 'var(--accent-cyan)' }}>
             ₹{portfolio.capitalDeployed?.toLocaleString('en-IN')}
           </span>
         </div>
 
         <div className="portfolio-stat">
-          <span className="portfolio-stat-label">💵 Cash Remaining</span>
+          <span className="portfolio-stat-label"><Banknote size={14} className="inline-icon"/> Cash Reserve</span>
           <span className="portfolio-stat-value" style={{ color: 'var(--profit)' }}>
             ₹{portfolio.remainingCash?.toLocaleString('en-IN')}
           </span>
         </div>
 
         <div className="portfolio-stat">
-          <span className="portfolio-stat-label">🎯 Cash Reserve Target</span>
+          <span className="portfolio-stat-label"><Target size={14} className="inline-icon"/> Reserve Target</span>
           <span className="portfolio-stat-value">
             ₹{portfolio.cashReserveTarget?.toLocaleString('en-IN')}
           </span>
         </div>
 
         <div className="portfolio-stat">
-          <span className="portfolio-stat-label">⚡ Risk Exposure</span>
+          <span className="portfolio-stat-label"><Zap size={14} className="inline-icon"/> Risk Exposure</span>
           <span className="portfolio-stat-value" style={{ color: 'var(--warning)' }}>
             ₹{portfolio.totalRiskExposure?.toLocaleString('en-IN')} ({portfolio.riskExposurePercent}%)
           </span>
         </div>
 
         <div className="portfolio-stat">
-          <span className="portfolio-stat-label">📊 Active Trades</span>
+          <span className="portfolio-stat-label"><BarChart2 size={14} className="inline-icon"/> Active Trades</span>
           <span className="portfolio-stat-value">
             {portfolio.activeTradeCount} / {portfolio.maxTrades}
           </span>

@@ -1,59 +1,105 @@
-import yahooFinance from 'yahoo-finance2';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
 
 /**
  * Fundamental Analysis Engine
- * Fetches and scores real fundamental data from Yahoo Finance quoteSummary.
+ * Fetches and scores real fundamental data from Screener.in via web scraping.
+ * This bypasses Yahoo Finance rate limits (HTTP 429) for NSE stocks.
  */
+
+// Helper to safely parse localized numbers like "18,25,022" 
+function parseScreenerNumber(str) {
+  if (!str) return null;
+  const cleaned = str.replace(/,/g, '').trim();
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : num;
+}
 
 /**
- * Fetch fundamental data for an NSE stock
+ * Fetch fundamental data for an NSE stock from Screener.in
  */
 export async function fetchFundamentals(symbol) {
-  const yahooSymbol = `${symbol}.NS`;
-
   try {
-    const result = await yahooFinance.quoteSummary(yahooSymbol, {
-      modules: ['defaultKeyStatistics', 'financialData', 'summaryDetail', 'earningsTrend'],
+    // Some symbols might need mapping if Screener uses a different name, 
+    // but for top 500 NIFTY stocks they largely perfectly match the NSE symbol.
+    const cleanSymbol = symbol.replace('.NS', '').replace('.BO', '');
+    
+    const { data } = await axios.get(`https://www.screener.in/company/${cleanSymbol}/consolidated/`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/121.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      timeout: 8000
+    }).catch(async (err) => {
+      // If consolidated fails (404), fallback to standalone page
+      if (err.response && err.response.status === 404) {
+        return axios.get(`https://www.screener.in/company/${cleanSymbol}/`, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          timeout: 8000
+        });
+      }
+      throw err;
     });
 
-    const stats = result.defaultKeyStatistics || {};
-    const financial = result.financialData || {};
-    const summary = result.summaryDetail || {};
+    const $ = cheerio.load(data);
+    const ratios = {};
+
+    // Parse the top ratios ul
+    $('#top-ratios li').each((i, el) => {
+      const name = $(el).find('.name').text().trim().toLowerCase();
+      const value = $(el).find('.number').text().trim();
+      ratios[name] = parseScreenerNumber(value);
+    });
+
+    // Parse values
+    const peRatio = ratios['stock p/e'] || null;
+    const roe = ratios['roe'] || null;
+    const roce = ratios['roce'] || null;
+    const dividendYield = ratios['dividend yield'] || null;
+    const bookValue = ratios['book value'] || null;
+    
+    // Market Cap comes in Crores on Screener. (e.g., 18,25,022 means 18 lakh crores)
+    // Yahoo format was raw value. Let's send raw value so TradeCard formatter works.
+    const marketCapCr = ratios['market cap'] || 0;
+    const marketCapRaw = marketCapCr * 10000000; // Cr -> raw
+
+    // 52W Range "1,612 / 1,115"
+    let fiftyTwoWeekHigh = null;
+    let fiftyTwoWeekLow = null;
+    $('#top-ratios li').each((i, el) => {
+      const name = $(el).find('.name').text().trim().toLowerCase();
+      if (name.includes('high / low')) {
+         const valStr = $(el).find('.value').text().trim().replace(/,/g, '');
+         const parts = valStr.split('/');
+         if (parts.length === 2) {
+            fiftyTwoWeekHigh = parseFloat(parts[0].trim());
+            fiftyTwoWeekLow = parseFloat(parts[1].trim());
+         }
+      }
+    });
 
     return {
-      // Valuation
-      peRatio: summary.trailingPE || stats.trailingPE || null,
-      forwardPE: stats.forwardPE || summary.forwardPE || null,
-      pbRatio: stats.priceToBook || null,
-      pegRatio: stats.pegRatio || null,
-
-      // Profitability
-      roe: financial.returnOnEquity ? Math.round(financial.returnOnEquity * 10000) / 100 : null,
-      roa: financial.returnOnAssets ? Math.round(financial.returnOnAssets * 10000) / 100 : null,
-      profitMargin: financial.profitMargins ? Math.round(financial.profitMargins * 10000) / 100 : null,
-      operatingMargin: financial.operatingMargins ? Math.round(financial.operatingMargins * 10000) / 100 : null,
-
-      // Growth
-      revenueGrowth: financial.revenueGrowth ? Math.round(financial.revenueGrowth * 10000) / 100 : null,
-      earningsGrowth: financial.earningsGrowth ? Math.round(financial.earningsGrowth * 10000) / 100 : null,
-
-      // Safety
-      debtToEquity: financial.debtToEquity ? Math.round(financial.debtToEquity * 100) / 100 : null,
-      currentRatio: financial.currentRatio ? Math.round(financial.currentRatio * 100) / 100 : null,
-
-      // Price context
-      marketCap: summary.marketCap || null,
-      fiftyTwoWeekHigh: summary.fiftyTwoWeekHigh || null,
-      fiftyTwoWeekLow: summary.fiftyTwoWeekLow || null,
-      dividendYield: summary.dividendYield ? Math.round(summary.dividendYield * 10000) / 100 : null,
-
-      // Analyst targets
-      targetMeanPrice: financial.targetMeanPrice || null,
-      recommendationKey: financial.recommendationKey || null,
-      numberOfAnalysts: financial.numberOfAnalystOpinions || null,
+      peRatio,
+      roe,
+      roce, // screener specific bonus metric
+      dividendYield,
+      bookValue,
+      marketCap: marketCapRaw,
+      fiftyTwoWeekHigh,
+      fiftyTwoWeekLow,
+      
+      // These elements aren't reliably on the top bar without logging in, 
+      // but we return them as null so the UI degrades gracefully.
+      debtToEquity: ratios['debt to equity'] || null,
+      revenueGrowth: null,
+      profitMargin: null,
+      targetMeanPrice: null,
+      recommendationKey: null,
+      numberOfAnalysts: null,
     };
   } catch (error) {
-    console.error(`Failed to fetch fundamentals for ${symbol}:`, error.message);
+    console.error(`Failed to fetch fundamentals for ${symbol} via Screener.in:`, error.message);
     return null;
   }
 }
@@ -62,7 +108,9 @@ export async function fetchFundamentals(symbol) {
  * Score fundamentals on a 0-10 scale
  */
 export function scoreFundamentals(fundamentals) {
-  if (!fundamentals) return { score: 5, rating: 'N/A', details: 'Fundamental data unavailable' };
+  if (!fundamentals || (!fundamentals.peRatio && !fundamentals.roe)) {
+    return { score: 5, rating: 'N/A', details: 'Core fundamental data unavailable.' };
+  }
 
   let score = 0;
   let maxScore = 0;
@@ -71,16 +119,16 @@ export function scoreFundamentals(fundamentals) {
   // === VALUATION (max 3 points) ===
   if (fundamentals.peRatio !== null) {
     maxScore += 3;
-    if (fundamentals.peRatio > 0 && fundamentals.peRatio <= 15) {
+    if (fundamentals.peRatio > 0 && fundamentals.peRatio <= 20) {
       score += 3;
       insights.push(`PE ${fundamentals.peRatio.toFixed(1)} — attractively valued`);
-    } else if (fundamentals.peRatio > 15 && fundamentals.peRatio <= 30) {
+    } else if (fundamentals.peRatio > 20 && fundamentals.peRatio <= 35) {
       score += 2;
       insights.push(`PE ${fundamentals.peRatio.toFixed(1)} — fairly valued`);
-    } else if (fundamentals.peRatio > 30 && fundamentals.peRatio <= 50) {
+    } else if (fundamentals.peRatio > 35 && fundamentals.peRatio <= 60) {
       score += 1;
       insights.push(`PE ${fundamentals.peRatio.toFixed(1)} — premium valuation`);
-    } else if (fundamentals.peRatio > 50) {
+    } else if (fundamentals.peRatio > 60) {
       score += 0;
       insights.push(`PE ${fundamentals.peRatio.toFixed(1)} — expensive`);
     } else {
@@ -89,41 +137,31 @@ export function scoreFundamentals(fundamentals) {
     }
   }
 
-  // === PROFITABILITY (max 2.5 points) ===
+  // === PROFITABILITY (max 3 points) ===
+  // Increased weight since we rely heavily on tracking ROE and now ROCE
   if (fundamentals.roe !== null) {
-    maxScore += 2.5;
-    if (fundamentals.roe >= 20) { score += 2.5; insights.push(`ROE ${fundamentals.roe}% — excellent`); }
-    else if (fundamentals.roe >= 15) { score += 2; insights.push(`ROE ${fundamentals.roe}% — strong`); }
-    else if (fundamentals.roe >= 10) { score += 1; insights.push(`ROE ${fundamentals.roe}% — moderate`); }
-    else { score += 0; insights.push(`ROE ${fundamentals.roe}% — weak`); }
+    maxScore += 3;
+    if (fundamentals.roe >= 20) { score += 3; insights.push(`ROE ${fundamentals.roe.toFixed(1)}% — excellent`); }
+    else if (fundamentals.roe >= 15) { score += 2; insights.push(`ROE ${fundamentals.roe.toFixed(1)}% — strong`); }
+    else if (fundamentals.roe >= 10) { score += 1; insights.push(`ROE ${fundamentals.roe.toFixed(1)}% — moderate`); }
+    else { score += 0; insights.push(`ROE ${fundamentals.roe.toFixed(1)}% — weak`); }
   }
 
-  // === GROWTH (max 2 points) ===
-  if (fundamentals.revenueGrowth !== null) {
+  // === CAPITAL EFFICIENCY (max 2 points) ===
+  if (fundamentals.roce !== null) {
     maxScore += 2;
-    if (fundamentals.revenueGrowth >= 20) { score += 2; insights.push(`Revenue growth ${fundamentals.revenueGrowth}% — high growth`); }
-    else if (fundamentals.revenueGrowth >= 10) { score += 1.5; insights.push(`Revenue growth ${fundamentals.revenueGrowth}% — solid`); }
-    else if (fundamentals.revenueGrowth >= 0) { score += 0.5; insights.push(`Revenue growth ${fundamentals.revenueGrowth}% — slow`); }
-    else { score += 0; insights.push(`Revenue declining ${fundamentals.revenueGrowth}%`); }
+    if (fundamentals.roce >= 20) { score += 2; insights.push(`ROCE ${fundamentals.roce.toFixed(1)}% — highly efficient`); }
+    else if (fundamentals.roce >= 12) { score += 1; insights.push(`ROCE ${fundamentals.roce.toFixed(1)}% — efficient`); }
+    else { score += 0; }
   }
 
-  // === SAFETY (max 1.5 points) ===
-  if (fundamentals.debtToEquity !== null) {
-    maxScore += 1.5;
-    if (fundamentals.debtToEquity < 0.5) { score += 1.5; insights.push(`D/E ${fundamentals.debtToEquity} — low leverage`); }
-    else if (fundamentals.debtToEquity < 1.0) { score += 1; insights.push(`D/E ${fundamentals.debtToEquity} — moderate leverage`); }
-    else if (fundamentals.debtToEquity < 2.0) { score += 0.5; insights.push(`D/E ${fundamentals.debtToEquity} — high leverage`); }
-    else { score += 0; insights.push(`D/E ${fundamentals.debtToEquity} — heavily leveraged ⚠️`); }
-  }
-
-  // === 52-WEEK POSITION (max 1 point) ===
+  // === 52-WEEK POSITION (max 2 point) ===
   if (fundamentals.fiftyTwoWeekHigh && fundamentals.fiftyTwoWeekLow) {
-    maxScore += 1;
-    // No current price here, but we can note the range
+    maxScore += 2;
     const range = fundamentals.fiftyTwoWeekHigh - fundamentals.fiftyTwoWeekLow;
     if (range > 0) {
       insights.push(`52W range: ₹${fundamentals.fiftyTwoWeekLow.toFixed(0)}–₹${fundamentals.fiftyTwoWeekHigh.toFixed(0)}`);
-      score += 0.5; // neutral baseline
+      score += 1; // neutral baseline
     }
   }
 
@@ -158,15 +196,16 @@ export function formatMarketCap(cap) {
  * Generate fundamental strength summary for a trade card
  */
 export function generateFundamentalSummary(fundamentals, scoreResult) {
-  if (!fundamentals) return 'Fundamental data unavailable for this stock.';
+  if (!fundamentals || (!fundamentals.peRatio && !fundamentals.roe)) {
+    return 'Relying strictly on Volume and Price Action algorithms as primary execution drivers, as fundamental PE/ROE metrics are unavailable.';
+  }
 
   const parts = [];
 
   if (fundamentals.peRatio) parts.push(`PE: ${fundamentals.peRatio.toFixed(1)}`);
   if (fundamentals.roe) parts.push(`ROE: ${fundamentals.roe}%`);
-  if (fundamentals.debtToEquity !== null) parts.push(`D/E: ${fundamentals.debtToEquity}`);
-  if (fundamentals.revenueGrowth !== null) parts.push(`Rev Growth: ${fundamentals.revenueGrowth}%`);
-  if (fundamentals.profitMargin !== null) parts.push(`Margin: ${fundamentals.profitMargin}%`);
+  if (fundamentals.roce) parts.push(`ROCE: ${fundamentals.roce}%`);
+  if (fundamentals.dividendYield) parts.push(`Div Yld: ${fundamentals.dividendYield}%`);
 
   const metricsLine = parts.join(' | ');
   const ratingLine = `Fundamental rating: ${scoreResult.rating} (${scoreResult.score}/10)`;

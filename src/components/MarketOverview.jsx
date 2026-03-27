@@ -1,11 +1,12 @@
 import React from 'react';
+import { Globe, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 export default function MarketOverview({ marketData }) {
   if (!marketData) {
     return (
       <div className="card" id="market-overview">
         <div className="card-header">
-          <div className="card-title"><span className="icon">🌐</span> Market Overview</div>
+          <div className="card-title"><span className="icon"><Globe size={16} className="inline-icon text-accent"/></span> Market Overview</div>
         </div>
         <div style={{ padding: '16px 0' }}>
           <div className="loading-skeleton" style={{ height: '70px', marginBottom: '10px' }}></div>
@@ -17,12 +18,17 @@ export default function MarketOverview({ marketData }) {
 
   const { indices, marketMood } = marketData;
   const moodClass = marketMood === 'Bullish' ? 'bullish' : marketMood === 'Bearish' ? 'bearish' : 'neutral';
-  const moodEmoji = marketMood === 'Bullish' ? '🟢' : marketMood === 'Bearish' ? '🔴' : '🟡';
+  
+  const getMoodIcon = () => {
+    if (marketMood === 'Bullish') return <TrendingUp size={16} style={{ color: 'var(--profit)' }} />;
+    if (marketMood === 'Bearish') return <TrendingDown size={16} style={{ color: 'var(--loss)' }} />;
+    return <Minus size={16} style={{ color: 'var(--warning)' }} />;
+  };
 
   return (
     <div className="card" id="market-overview">
       <div className="card-header">
-        <div className="card-title"><span className="icon">🌐</span> Market Overview</div>
+        <div className="card-title"><span className="icon"><Globe size={16} className="inline-icon text-accent"/></span> Market Overview</div>
       </div>
 
       <div className="market-indices">
@@ -46,7 +52,7 @@ export default function MarketOverview({ marketData }) {
 
       <div className="market-mood">
         <span className="mood-label">Market Mood</span>
-        <span>{moodEmoji}</span>
+        <span style={{ display: 'flex', alignItems: 'center' }}>{getMoodIcon()}</span>
         <span className={`mood-value ${moodClass}`}>{marketMood}</span>
       </div>
     </div>
