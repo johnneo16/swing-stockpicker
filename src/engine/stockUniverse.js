@@ -68,13 +68,41 @@ const STOCK_UNIVERSE = [
   // Chemicals & Materials
   { symbol: 'PIDILITIND', sector: 'Chemicals', name: 'Pidilite Industries' },
   { symbol: 'SBILIFE', sector: 'Insurance', name: 'SBI Life Insurance' },
+  { symbol: 'SRF', sector: 'Chemicals', name: 'SRF' },
+  { symbol: 'AARTIIND', sector: 'Chemicals', name: 'Aarti Industries' },
 
-  // Diversified
+  // Diversified & Others
   { symbol: 'ASIANPAINT', sector: 'Consumer', name: 'Asian Paints' },
   { symbol: 'DIVISLAB', sector: 'Pharma', name: "Divi's Laboratories" },
   { symbol: 'HEROMOTOCO', sector: 'Auto', name: 'Hero MotoCorp' },
   { symbol: 'INDUSINDBK', sector: 'Banking', name: 'IndusInd Bank' },
-  { symbol: 'WIPRO', sector: 'IT', name: 'Wipro' },
+  { symbol: 'HINDPETRO', sector: 'Energy', name: 'HPCL' },
+  { symbol: 'BPCL', sector: 'Energy', name: 'BPCL' },
+  { symbol: 'GAIL', sector: 'Energy', name: 'GAIL' },
+  { symbol: 'BEL', sector: 'Defense', name: 'Bharat Electronics' },
+  { symbol: 'HAL', sector: 'Defense', name: 'Hindustan Aeronautics' },
+  { symbol: 'DLF', sector: 'Real Estate', name: 'DLF' },
+  { symbol: 'GODREJCP', sector: 'FMCG', name: 'Godrej Consumer' },
+  { symbol: 'DABUR', sector: 'FMCG', name: 'Dabur India' },
+  { symbol: 'COLPAL', sector: 'FMCG', name: 'Colgate-Palmolive' },
+  { symbol: 'TATACONSUM', sector: 'FMCG', name: 'Tata Consumer' },
+  { symbol: 'TATACOMM', sector: 'Telecom', name: 'Tata Communications' },
+  { symbol: 'JUBLFOOD', sector: 'Retail', name: 'Jubilant FoodWorks' },
+  { symbol: 'PAGEIND', sector: 'Textiles', name: 'Page Industries' },
+  { symbol: 'BERGEPAINT', sector: 'Consumer', name: 'Berger Paints' },
+  { symbol: 'HAVELLS', sector: 'Consumer Durables', name: 'Havells India' },
+  { symbol: 'VOLTAS', sector: 'Consumer Durables', name: 'Voltas' },
+  { symbol: 'CUMMINSIND', sector: 'Engineering', name: 'Cummins India' },
+  { symbol: 'ABB', sector: 'Engineering', name: 'ABB India' },
+  { symbol: 'SIEMENS', sector: 'Engineering', name: 'Siemens' },
+  { symbol: 'BHEL', sector: 'Engineering', name: 'BHEL' },
+  { symbol: 'POLYCAB', sector: 'Electronics', name: 'Polycab India' },
+  { symbol: 'KEI', sector: 'Electronics', name: 'KEI Industries' },
+  { symbol: 'CHOLAFIN', sector: 'Financial Services', name: 'Cholamandalam' },
+  { symbol: 'CANBK', sector: 'Banking', name: 'Canara Bank' },
+  { symbol: 'IDFCFIRSTB', sector: 'Banking', name: 'IDFC First Bank' },
+  { symbol: 'FEDERALBNK', sector: 'Banking', name: 'Federal Bank' },
+  { symbol: 'AUFIL', sector: 'Banking', name: 'AU Small Finance' },
 ];
 
 // Remove duplicates

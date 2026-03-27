@@ -219,8 +219,8 @@ export function rankAndFilterTrades(scoredStocks) {
   // Filter out low-confidence trades
   const filtered = scoredStocks
     .filter(s => s !== null)
-    .filter(s => s.confidenceScore >= 40)
-    .filter(s => s.riskRewardRatio >= 2.0);
+    .filter(s => s.confidenceScore >= 35)
+    .filter(s => s.riskRewardRatio >= 1.8);
 
   // Sort by confidence score (descending)
   filtered.sort((a, b) => b.confidenceScore - a.confidenceScore);

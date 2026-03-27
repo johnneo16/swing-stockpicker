@@ -16,9 +16,9 @@
   --border-subtle: rgba(255, 255, 255, 0.06);
   --border-glow: rgba(0, 230, 118, 0.4);
 
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --text-primary: #ffffff;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
 
   --accent-indigo: #00e676; /* Overridden to neon green for SwingAI */
   --accent-violet: #22d3ee; 
@@ -89,13 +89,11 @@ body {
 
 body::before {
   content: '';
-  position: absolute; /* Not fixed, just top block or fixed behind */
+  position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
-  background-image: var(--gradient-grid-glow);
-  background-size: 30px 30px;
+  background-image: none; /* Removed boxy grid as requested */
   pointer-events: none;
   z-index: 0;
-  opacity: 0.6;
 }
 
 #root {
@@ -757,8 +755,8 @@ body::before {
 
 /* === Portfolio Summary Card === */
 .portfolio-card {
-  position: sticky;
-  top: 20px;
+  /* Removed sticky to prevent overlap with Market/Alert panels on scroll */
+  margin-bottom: 20px;
 }
 
 .portfolio-total {

@@ -231,9 +231,7 @@ export default function App() {
       <header className="header">
         {/* Zone 1: Brand */}
         <div className="header-brand">
-          <div className="brand-logo-sq">
-            <span>S</span>
-          </div>
+          <img src="/favicon.png" alt="SwingPro Logo" className="header-logo" style={{ width: '40px', height: '40px', borderRadius: '4px' }} />
           <div>
             <h1 className="header-title">SwingPro</h1>
             <p className="header-subtitle">AI-Powered NSE Swing Trading</p>
