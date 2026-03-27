@@ -163,6 +163,17 @@ export function scoreStock(stockData, marketContext = null) {
       ? `Volume ${indicators.volumeRatio}x above average — possible institutional accumulation`
       : 'Normal volume — no significant institutional signals',
 
+    // Chart Data (last 90 trading sessions)
+    // Convert Date objects to unix timestamps for lightweight-charts
+    chartData: stockData.quotes.slice(-90).map(q => ({
+      time: Math.floor(q.date.getTime() / 1000), // Unix timestamp in seconds
+      open: q.open,
+      high: q.high,
+      low: q.low,
+      close: q.close,
+      value: q.volume // For volume histogram
+    })),
+
     // Fundamentals raw data (for UI display)
     fundamentals: stockData.fundamentals ? {
       peRatio: stockData.fundamentals.peRatio,

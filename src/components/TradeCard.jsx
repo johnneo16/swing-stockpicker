@@ -1,4 +1,5 @@
 import React from 'react';
+import MiniChart from './MiniChart';
 
 export default function TradeCard({ trade }) {
   const confidenceClass = trade.confidenceScore >= 65 ? 'high' : trade.confidenceScore >= 45 ? 'medium' : 'low';
@@ -87,6 +88,13 @@ export default function TradeCard({ trade }) {
             <div className="position-value">₹{trade.capitalRequired.toLocaleString('en-IN')}</div>
           </div>
         </div>
+
+        {/* TradingView Chart Overlay */}
+        {trade.chartData && trade.chartData.length > 0 && (
+          <div className="chart-wrapper" style={{ margin: '20px 0', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden', backgroundColor: 'var(--surface-dark)' }}>
+            <MiniChart data={trade.chartData} />
+          </div>
+        )}
 
         {/* Fundamental Metrics Row */}
         {fund && (
