@@ -67,38 +67,83 @@ Six-factor weighted scoring system:
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ System Architecture
 
+SwingPro is built on a modern, decoupled architecture optimized for financial data processing, utilizing a React frontend and an Express-powered analytical engine.
+
+```mermaid
+graph TD
+    %% Define Styles
+    classDef client fill:#1E293B,stroke:#38BDF8,stroke-width:2px,color:#F8FAFC
+    classDef server fill:#0F172A,stroke:#10B981,stroke-width:2px,color:#F8FAFC
+    classDef engine fill:#334155,stroke:#F59E0B,stroke-width:2px,color:#F8FAFC
+    classDef external fill:#475569,stroke:#EC4899,stroke-width:2px,color:#F8FAFC
+    
+    %% Client Tier
+    subgraph Client ["Client Tier (React 18 + Vite)"]
+        UI["Dashboard UI\n(Components: TradeCard, Portfolio)"]:::client
+        State["State Management\n(React Hooks + Context)"]:::client
+        UI <--> State
+    end
+
+    %% API Gateway / Controllers
+    subgraph Backend ["Backend Tier (Node.js + Express)"]
+        Router["Express Router\n(/api/scan, /api/portfolio)"]:::server
+        Cache["In-Memory Cache\n(5-min TTL)"]:::server
+        Cron["Task Scheduler\n(30-min Auto-Refresh)"]:::server
+        
+        Router --- Cache
+        Cron --> Router
+    end
+
+    %% Core Processing Engine
+    subgraph CoreEngine ["Core Alpha Engine"]
+        DataFetch["Data Aggregator\n(batchFetchStocks)"]:::engine
+        Tech["Technical Analysis\n(RSI, MACD, EMA, Bollinger)"]:::engine
+        Score["AI Scoring Engine\n(Weights: Trend 20%, Momentum 20%)"]:::engine
+        Risk["Risk Management\n(Position Sizing, Sector Limits)"]:::engine
+        
+        DataFetch --> Tech
+        Tech --> Score
+        Score --> Risk
+    end
+
+    %% External Providers
+    subgraph External ["External Data Providers"]
+        Angel["Angel One SmartAPI\n(REST OHLCV + LTP)"]:::external
+        TOTP["TOTP Auth Generator\n(Session Management)"]:::external
+    end
+
+    %% Connections
+    State <==>|REST API (JSON)| Router
+    Router ==>|Trigger Scan| CoreEngine
+    Risk ==>|Ranked Setups| Router
+    DataFetch <==>|HTTPS (LTP + OHLCV)| Angel
+    TOTP -->|2FA Secret| Angel
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                    SwingPro Architecture                      │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  Angel One SmartAPI (NSE/BSE)                                │
-│       │                                                      │
-│       ▼                                                      │
-│  ┌─────────────┐    ┌──────────────────┐    ┌────────────┐  │
-│  │ Data Fetcher │───▶│ Technical Engine  │───▶│ AI Scoring │  │
-│  │ (LTP + OHLCV)│    │ RSI/MACD/BB/EMA  │    │ 0-100      │  │
-│  └─────────────┘    └──────────────────┘    └─────┬──────┘  │
-│                                                    │         │
-│                                              ┌─────▼──────┐  │
-│                                              │ Risk Engine │  │
-│                                              │ Position    │  │
-│                                              │ Sizing      │  │
-│                                              └─────┬──────┘  │
-│                                                    │         │
-│  ┌────────────────────────────────────────────────┐│         │
-│  │              Node/Express Backend              ││         │
-│  │  Automated 30-Min Market Scheduler             │◀─────────│
-│  └───────────────────┬────────────────────────────┘          │
-│                      │                                       │
-│  ┌───────────────────▼────────────────────────────┐          │
-│  │           React Frontend (Vite)                │          │
-│  │  Stocks/ETFs Toggle │ Portfolio │ Market       │          │
-│  └────────────────────────────────────────────────┘          │
-└──────────────────────────────────────────────────────────────┘
-```
+
+### 🧬 Tech Stack Overview
+
+#### 1. Frontend (Presentation Layer)
+- **Framework**: React 18 (Hooks-based architecture)
+- **Build Tool**: Vite 5 (HMR & optimized production bundling)
+- **Styling**: Vanilla CSS3 (Custom Glassmorphism design system, CSS Variables)
+
+#### 2. Backend (API & Business Logic)
+- **Runtime**: Node.js 18+
+- **Framework**: Express.js (RESTful API routing & static file serving)
+- **Authentication**: `totp-generator` (Dynamic 2FA bypass for active Angel One sessions)
+- **Concurrency**: `Promise.all` batching with exponential backoff and chunked HTTP workers
+
+#### 3. Data & Analytics (Alpha Engine)
+- **Primary Data Provider**: Angel One SmartAPI (`smartapi-javascript` v1.0.27)
+- **Technical Indicators**: `technicalindicators` library (SMA, EMA, RSI, MACD, ADX, ATR, Bollinger Bands)
+- **Universe Caching**: Hardcoded symbol-token mapping layer for 100+ NSE constituents and ETFs
+
+#### 4. Infrastructure & Deployment
+- **Hosting**: Render.com (Unified Node.js Monolith deployment)
+- **Routing**: SPA Catch-all (`app.get('*')` routing to static `dist/` folder)
+- **Environment Management**: `dotenv` (API Keys, Client IDs, TOTP Secrets)
 
 ---
 
