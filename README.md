@@ -115,10 +115,10 @@ graph TD
     end
 
     %% Connections
-    State <==>|REST API (JSON)| Router
-    Router ==>|Trigger Scan| CoreEngine
-    Risk ==>|Ranked Setups| Router
-    DataFetch <==>|HTTPS (LTP + OHLCV)| Angel
+    State <-->|REST API JSON| Router
+    Router -->|Trigger Scan| CoreEngine
+    Risk -->|Ranked Setups| Router
+    DataFetch <-->|HTTPS LTP + OHLCV| Angel
     TOTP -->|2FA Secret| Angel
 ```
 
