@@ -250,9 +250,10 @@ export async function batchFetchStocks(stocks, days = 90, concurrency = 2) {
       }
     }
 
-    // Rate limit: wait 2s between batches for Yahoo, 300ms for Angel One
+    // Rate limit: wait 3.5s between batches for Yahoo, 300ms for Angel One
+    // (Render's shared IP gets rate-limited aggressively by Yahoo)
     if (i + concurrency < stocks.length) {
-      await new Promise(r => setTimeout(r, USE_ANGELONE ? 300 : 2000));
+      await new Promise(r => setTimeout(r, USE_ANGELONE ? 300 : 3500));
     }
   }
 

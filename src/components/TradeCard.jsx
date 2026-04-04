@@ -14,7 +14,12 @@ const TradeCard = ({ trade }) => {
   const hasFundamentals = fund && (fund.peRatio || fund.roe || fund.marketCap);
 
   return (
-    <div className="trade-card" id={`trade-${trade.symbol}`}>
+    <div className={`trade-card${trade.lowConfidence ? ' trade-card-low-conf' : ''}`} id={`trade-${trade.symbol}`}>
+      {trade.lowConfidence && (
+        <div className="low-conf-banner">
+          ⚠ Watch Only — Score below threshold, verify before acting
+        </div>
+      )}
       {/* ---- Header ---- */}
       <div className="trade-card-header">
         <div className="trade-stock-info">

@@ -229,29 +229,43 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
  * Run the full scanning pipeline: fetch → analyze → score → rank → filter
  */
 export function rankAndFilterTrades(scoredStocks, totalCapital = null) {
-  // Filter out low-confidence trades
-  const filtered = scoredStocks
-    .filter(s => s !== null)
-    .filter(s => s.confidenceScore >= 28)
-    .filter(s => s.riskRewardRatio >= 1.5);
+  const valid = scoredStocks.filter(s => s !== null);
 
-  // Sort by confidence score (descending)
-  filtered.sort((a, b) => b.confidenceScore - a.confidenceScore);
+  // Sort by confidence score descending
+  valid.sort((a, b) => b.confidenceScore - a.confidenceScore);
 
-  // Apply portfolio-level risk checks
+  // Pass 1: strict — R:R >= 1.5, score >= 28, portfolio checks
   const selectedTrades = [];
-  for (const trade of filtered) {
+  for (const trade of valid) {
+    if (trade.riskRewardRatio < 1.5) continue;
+    if (trade.confidenceScore < 28) continue;
     const validation = validateTrade(trade, selectedTrades, totalCapital);
     if (validation.valid) {
       trade.validationWarnings = validation.warnings;
+      trade.lowConfidence = false;
       selectedTrades.push(trade);
     }
     if (selectedTrades.length >= 5) break;
   }
 
-  // Build portfolio summary
-  const portfolio = calculatePortfolioSummary(selectedTrades, totalCapital);
+  // Pass 2: fill remaining slots from best available, no score floor
+  // (marks these as lowConfidence so the UI can warn the user)
+  if (selectedTrades.length < 5) {
+    const selectedSymbols = new Set(selectedTrades.map(t => t.symbol));
+    for (const trade of valid) {
+      if (selectedSymbols.has(trade.symbol)) continue;
+      if (trade.riskRewardRatio < 1.0) continue; // absolute minimum
+      const validation = validateTrade(trade, selectedTrades, totalCapital);
+      if (validation.valid) {
+        trade.validationWarnings = validation.warnings;
+        trade.lowConfidence = true; // flag for UI
+        selectedTrades.push(trade);
+      }
+      if (selectedTrades.length >= 5) break;
+    }
+  }
 
+  const portfolio = calculatePortfolioSummary(selectedTrades, totalCapital);
   return { trades: selectedTrades, portfolio };
 }
 

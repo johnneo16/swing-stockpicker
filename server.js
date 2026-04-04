@@ -137,7 +137,8 @@ async function runScan(force = false, capital = null) {
   }
 
   // 2. Fetch data + fundamentals for all stocks (300 calendar days ensures >200 trading candles for 200 EMA)
-  const stocksData = await batchFetchStocks(STOCK_UNIVERSE, 300, 4);
+  // concurrency=2 prevents Yahoo Finance 429 rate-limiting from Render's shared IP
+  const stocksData = await batchFetchStocks(STOCK_UNIVERSE, 300, 2);
   console.log(`  📊 Fetched data for ${stocksData.length}/${STOCK_UNIVERSE.length} stocks`);
 
   // 3. Score each stock (now with market context)
@@ -292,7 +293,7 @@ app.get('/api/scan-etf', async (req, res) => {
 
     console.log(`\n[${new Date().toISOString()}] 🔍 Starting ETF scan...`);
 
-    const etfData = await batchFetchStocks(ETF_UNIVERSE, 300, 4);
+    const etfData = await batchFetchStocks(ETF_UNIVERSE, 300, 2);
     console.log(`  📊 Fetched data for ${etfData.length}/${ETF_UNIVERSE.length} ETFs`);
 
     const scored = etfData.map(d => {
