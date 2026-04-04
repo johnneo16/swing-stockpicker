@@ -784,6 +784,102 @@ body::before {
   background-clip: text;
 }
 
+/* Editable Capital Display */
+.capital-display-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  transition: background var(--transition-fast);
+}
+
+.capital-display-row:hover {
+  background: var(--bg-glass-hover);
+}
+
+.capital-edit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent-cyan);
+  cursor: pointer;
+  opacity: 1;
+  transition: all var(--transition-fast);
+}
+
+.capital-display-row:hover .capital-edit-btn {
+  opacity: 1;
+  border-color: var(--border-subtle);
+  background: var(--bg-glass);
+}
+
+.capital-edit-btn:hover {
+  color: var(--accent-indigo);
+  border-color: var(--accent-indigo) !important;
+  background: rgba(0, 230, 118, 0.1) !important;
+}
+
+.capital-edit-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.capital-currency {
+  font-family: var(--font-mono);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--accent-indigo);
+}
+
+.capital-input {
+  font-family: var(--font-mono);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-glass);
+  border: 1px solid var(--accent-indigo);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  width: 160px;
+  text-align: center;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 230, 118, 0.15);
+  transition: box-shadow var(--transition-fast);
+}
+
+.capital-input:focus {
+  box-shadow: 0 0 0 3px rgba(0, 230, 118, 0.25);
+}
+
+.capital-save-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--accent-indigo);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 230, 118, 0.15);
+  color: var(--accent-indigo);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.capital-save-btn:hover {
+  background: rgba(0, 230, 118, 0.25);
+}
+
 .portfolio-stats {
   display: flex;
   flex-direction: column;
@@ -1126,6 +1222,47 @@ body::before {
   background: var(--bg-glass);
   color: var(--text-muted);
   border: 1px solid var(--border-subtle);
+}
+
+/* TradingView verify link */
+.tv-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #2962ff;
+  background: rgba(41, 98, 255, 0.10);
+  border: 1px solid rgba(41, 98, 255, 0.25);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+.tv-link-btn:hover {
+  background: rgba(41, 98, 255, 0.20);
+  border-color: rgba(41, 98, 255, 0.45);
+}
+[data-theme='light'] .tv-link-btn {
+  color: #1a56db;
+  background: rgba(26, 86, 219, 0.08);
+  border-color: rgba(26, 86, 219, 0.22);
+}
+
+/* Setup Type badge — shows analysis basis (Breakout, MACD Crossover, etc.) */
+.setup-type-badge {
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  background: rgba(139, 92, 246, 0.12);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  white-space: nowrap;
 }
 
 /* Analyst recommendation badge */

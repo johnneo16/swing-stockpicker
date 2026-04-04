@@ -1,5 +1,5 @@
 import { analyzeTechnicals, generateTechnicalReasoning } from './technicalAnalysis.js';
-import { calculatePositionSize, validateTrade, calculatePortfolioSummary } from './riskEngine.js';
+import { calculatePositionSize, validateTrade, calculatePortfolioSummary, CONFIG } from './riskEngine.js';
 import { scoreFundamentals, generateFundamentalSummary } from './fundamentalAnalysis.js';
 
 /**
@@ -22,7 +22,7 @@ const WEIGHTS = {
 /**
  * Score a single stock and generate trade setup
  */
-export function scoreStock(stockData, marketContext = null) {
+export function scoreStock(stockData, marketContext = null, totalCapital = null) {
   const analysis = analyzeTechnicals(stockData.quotes);
   if (!analysis) return null;
 
@@ -108,13 +108,25 @@ export function scoreStock(stockData, marketContext = null) {
     + rrScore + psychScore + fundamentalScore + contextScore;
 
   // === POSITION SIZING ===
-  const position = calculatePositionSize(stockData.currentPrice, levels.stopLoss);
+  const position = calculatePositionSize(stockData.currentPrice, levels.stopLoss, undefined, totalCapital);
   if (!position || position.quantity <= 0) return null;
 
   // === DETERMINE RISK LEVEL ===
   let riskLevel = 'Medium';
   if (totalScore >= 70) riskLevel = 'Low';
   else if (totalScore < 45) riskLevel = 'High';
+
+  // === SETUP TYPE (analysis basis) ===
+  let setupType = 'Trend Analysis';
+  if (signals.breakingOut && signals.strongTrend) setupType = 'Breakout + ADX Trend';
+  else if (signals.breakingOut) setupType = 'Breakout';
+  else if (signals.nearSupport && signals.rsiOversold) setupType = 'Pullback / RSI Reversal';
+  else if (signals.bbSqueezing) setupType = 'Bollinger Squeeze';
+  else if (signals.nearLowerBB && signals.rsiOversold) setupType = 'Mean Reversion';
+  else if (signals.macdBullishCross) setupType = 'MACD Crossover';
+  else if (signals.consolidating && signals.nearSupport) setupType = 'Consolidation + Support';
+  else if (signals.trendAligned && signals.macdBullish) setupType = 'Trend Continuation';
+  else if (signals.volumeSpike) setupType = 'Volume Surge';
 
   // === EXECUTION STRATEGY ===
   let executionStrategy = 'Wait for confirmation';
@@ -190,6 +202,7 @@ export function scoreStock(stockData, marketContext = null) {
     } : null,
 
     // Trader insight
+    setupType,
     confidenceScore: Math.round(totalScore),
     riskLevel,
     whyThisWorks: generateWhyWorks(signals, indicators, fundResult),
@@ -215,12 +228,12 @@ export function scoreStock(stockData, marketContext = null) {
 /**
  * Run the full scanning pipeline: fetch → analyze → score → rank → filter
  */
-export function rankAndFilterTrades(scoredStocks) {
+export function rankAndFilterTrades(scoredStocks, totalCapital = null) {
   // Filter out low-confidence trades
   const filtered = scoredStocks
     .filter(s => s !== null)
-    .filter(s => s.confidenceScore >= 35)
-    .filter(s => s.riskRewardRatio >= 1.8);
+    .filter(s => s.confidenceScore >= 28)
+    .filter(s => s.riskRewardRatio >= 1.5);
 
   // Sort by confidence score (descending)
   filtered.sort((a, b) => b.confidenceScore - a.confidenceScore);
@@ -228,7 +241,7 @@ export function rankAndFilterTrades(scoredStocks) {
   // Apply portfolio-level risk checks
   const selectedTrades = [];
   for (const trade of filtered) {
-    const validation = validateTrade(trade, selectedTrades);
+    const validation = validateTrade(trade, selectedTrades, totalCapital);
     if (validation.valid) {
       trade.validationWarnings = validation.warnings;
       selectedTrades.push(trade);
@@ -237,7 +250,7 @@ export function rankAndFilterTrades(scoredStocks) {
   }
 
   // Build portfolio summary
-  const portfolio = calculatePortfolioSummary(selectedTrades);
+  const portfolio = calculatePortfolioSummary(selectedTrades, totalCapital);
 
   return { trades: selectedTrades, portfolio };
 }

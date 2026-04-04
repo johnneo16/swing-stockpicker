@@ -9,12 +9,14 @@ import PortfolioSummary from './components/PortfolioSummary.jsx';
 import MarketOverview from './components/MarketOverview.jsx';
 import AlertPanel, { generateAlerts } from './components/AlertPanel.jsx';
 
+const DEFAULT_CAPITAL = 50000;
+
 // Fallback portfolio used only when backend is offline
-const FALLBACK_PORTFOLIO = {
-  totalCapital: 50000, capitalDeployed: 0, remainingCash: 50000, cashReserveTarget: 12500,
+const makeFallbackPortfolio = (capital) => ({
+  totalCapital: capital, capitalDeployed: 0, remainingCash: capital, cashReserveTarget: Math.round(capital * 0.25),
   totalRiskExposure: 0, riskExposurePercent: 0, activeTradeCount: 0, maxTrades: 5,
   deploymentPercent: 0, sectorDistribution: {},
-};
+});
 
 const SAMPLE_MARKET = {
   indices: {
@@ -99,10 +101,14 @@ const ThemeToggle = React.memo(function ThemeToggle({ theme, onToggle }) {
 export default function App() {
   const [scanMode, setScanMode] = useState('stocks');
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [capital, setCapital] = useState(() => {
+    const saved = localStorage.getItem('swingpro-capital');
+    return saved ? Number(saved) : DEFAULT_CAPITAL;
+  });
 
   const [trades, setTrades] = useState([]);
   const [etfTrades, setEtfTrades] = useState([]);
-  const [portfolio, setPortfolio] = useState(FALLBACK_PORTFOLIO);
+  const [portfolio, setPortfolio] = useState(() => makeFallbackPortfolio(capital));
   const [etfPortfolio, setEtfPortfolio] = useState(null);
   const [marketData, setMarketData] = useState(SAMPLE_MARKET);
   const [alerts, setAlerts] = useState([]);
@@ -115,13 +121,25 @@ export default function App() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [nextRefreshIn, setNextRefreshIn] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+  const [highConvictionOnly, setHighConvictionOnly] = useState(() =>
+    localStorage.getItem('swingpro-highconv') === 'true'
+  );
 
   const previousTradesRef = useRef([]);
   const autoRefreshTimer = useRef(null);
   const countdownTimer = useRef(null);
 
-  const activeTrades = scanMode === 'stocks' ? trades : etfTrades;
+  const rawTrades = scanMode === 'stocks' ? trades : etfTrades;
+  const activeTrades = highConvictionOnly ? rawTrades.filter(t => t.confidenceScore >= 60) : rawTrades;
   const activePortfolio = scanMode === 'stocks' ? portfolio : (etfPortfolio || portfolio);
+
+  const toggleHighConviction = useCallback(() => {
+    setHighConvictionOnly(prev => {
+      const next = !prev;
+      localStorage.setItem('swingpro-highconv', String(next));
+      return next;
+    });
+  }, []);
 
   // Theme sync
   useEffect(() => {
@@ -134,6 +152,21 @@ export default function App() {
   }, [theme]);
 
   const toggleTheme = useCallback(() => setTheme(prev => prev === 'dark' ? 'light' : 'dark'), []);
+
+  const handleCapitalChange = useCallback((newCapital) => {
+    const val = Math.max(1000, Math.round(newCapital));
+    setCapital(val);
+    localStorage.setItem('swingpro-capital', String(val));
+    // Update fallback portfolio with new capital
+    setPortfolio(prev => ({
+      ...prev,
+      totalCapital: val,
+      remainingCash: Math.round(val - (prev.capitalDeployed || 0)),
+      cashReserveTarget: Math.round(val * 0.25),
+      riskExposurePercent: prev.totalRiskExposure ? Math.round((prev.totalRiskExposure / val) * 10000) / 100 : 0,
+      deploymentPercent: prev.capitalDeployed ? Math.round((prev.capitalDeployed / val) * 10000) / 100 : 0,
+    }));
+  }, []);
 
   const fetchMarketOverview = useCallback(async () => {
     try {
@@ -149,7 +182,8 @@ export default function App() {
     if (!silent) setScanning(true);
     setError(null);
     try {
-      const endpoint = scanMode === 'etf' ? '/api/scan-etf?refresh=true' : '/api/scan?refresh=true';
+      const capitalParam = `&capital=${capital}`;
+      const endpoint = scanMode === 'etf' ? `/api/scan-etf?refresh=true${capitalParam}` : `/api/scan?refresh=true${capitalParam}`;
       const res = await fetch(endpoint);
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       const data = await res.json();
@@ -160,7 +194,7 @@ export default function App() {
 
         if (scanMode === 'stocks') {
           setTrades(data.trades);
-          setPortfolio(data.portfolio || FALLBACK_PORTFOLIO);
+          setPortfolio(data.portfolio || makeFallbackPortfolio(capital));
         } else {
           setEtfTrades(data.trades);
           setEtfPortfolio(data.portfolio);
@@ -186,7 +220,7 @@ export default function App() {
       if (!silent) setScanning(false);
       setInitialLoad(false);
     }
-  }, [scanMode, fetchMarketOverview]);
+  }, [scanMode, capital, fetchMarketOverview]);
 
   // Auto-refresh timers
   useEffect(() => {
@@ -259,6 +293,15 @@ export default function App() {
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
 
           <button
+            className={`auto-refresh-toggle ${highConvictionOnly ? 'active' : ''}`}
+            onClick={toggleHighConviction}
+            title={highConvictionOnly ? 'Showing score ≥ 60 only — click to show all' : 'Show high-conviction picks only (score ≥ 60)'}
+          >
+            <Target size={14} />
+            <span className="auto-refresh-label">{highConvictionOnly ? 'High Conv.' : 'All Picks'}</span>
+          </button>
+
+          <button
             className={`auto-refresh-toggle ${autoRefresh ? 'active' : ''}`}
             onClick={() => setAutoRefresh(prev => !prev)}
             title={autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF'}
@@ -323,7 +366,7 @@ export default function App() {
             onClick={() => handleTabChange(tab)}
           >
             {tab === 'dashboard' ? <><Activity size={14} className="tab-icon"/> Dashboard</>
-              : tab === 'trades' ? <><BarChart3 size={14} className="tab-icon"/> {scanMode === 'etf' ? 'ETFs' : 'Trade Setups'}{activeTrades.length > 0 ? ` (${activeTrades.length})` : ''}</>
+              : tab === 'trades' ? <><BarChart3 size={14} className="tab-icon"/> {scanMode === 'etf' ? 'ETFs' : 'Trade Setups'}{activeTrades.length > 0 ? ` (${activeTrades.length})` : ''}{highConvictionOnly ? <span style={{ marginLeft: 4, fontSize: '0.6rem', color: 'var(--accent-cyan)', fontWeight: 700 }}>★</span> : null}</>
               : <><Briefcase size={14} className="tab-icon"/> Portfolio</>}
           </button>
         ))}
@@ -368,7 +411,7 @@ export default function App() {
               <>{[1, 2].map(i => <div key={i} className="loading-skeleton skeleton-sidebar" />)}</>
             ) : (
               <>
-                <PortfolioSummary portfolio={activePortfolio} />
+                <PortfolioSummary portfolio={activePortfolio} capital={capital} onCapitalChange={handleCapitalChange} />
                 <MarketOverview marketData={marketData} />
                 <AlertPanel alerts={alerts} />
               </>
@@ -448,7 +491,7 @@ export default function App() {
             </div>
           </div>
           <div className="sidebar">
-            <PortfolioSummary portfolio={activePortfolio} />
+            <PortfolioSummary portfolio={activePortfolio} capital={capital} onCapitalChange={handleCapitalChange} />
           </div>
         </div>
       )}

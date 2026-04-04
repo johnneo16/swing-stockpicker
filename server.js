@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import cors from 'cors';
 import { batchFetchStocks, fetchMarketIndex } from './src/engine/dataFetcher.js';
 import { scoreStock, rankAndFilterTrades } from './src/engine/scoringEngine.js';
-import { calculatePortfolioSummary } from './src/engine/riskEngine.js';
+import { calculatePortfolioSummary, CONFIG } from './src/engine/riskEngine.js';
 import STOCK_UNIVERSE from './src/engine/stockUniverse.js';
 import ETF_UNIVERSE from './src/engine/etfUniverse.js';
 
@@ -107,7 +107,8 @@ function getNextScanTime() {
 // Core Scan Logic
 // ============================================================
 
-async function runScan(force = false) {
+async function runScan(force = false, capital = null) {
+  const totalCapital = capital || CONFIG.TOTAL_CAPITAL;
   const now = Date.now();
 
   // Check cache
@@ -142,7 +143,7 @@ async function runScan(force = false) {
   // 3. Score each stock (now with market context)
   const scored = stocksData.map(stockData => {
     try {
-      return scoreStock(stockData, marketContext);
+      return scoreStock(stockData, marketContext, totalCapital);
     } catch (err) {
       console.error(`  ❌ Error scoring ${stockData.symbol}:`, err.message);
       return null;
@@ -151,8 +152,8 @@ async function runScan(force = false) {
   console.log(`  🧠 Scored ${scored.length} stocks`);
 
   // 4. Rank and filter
-  const result = rankAndFilterTrades(scored);
-  console.log(`  ✅ Selected ${result.trades.length} trades`);
+  const result = rankAndFilterTrades(scored, totalCapital);
+  console.log(`  ✅ Selected ${result.trades.length} trades (capital: ₹${totalCapital.toLocaleString('en-IN')})`);
 
   if (result.trades.length > 0) {
     result.trades.forEach(t => {
@@ -216,7 +217,8 @@ function startScheduler() {
 app.get('/api/scan', async (req, res) => {
   try {
     const force = req.query.refresh === 'true';
-    const result = await runScan(force);
+    const capital = req.query.capital ? parseInt(req.query.capital, 10) : null;
+    const result = await runScan(force, capital || undefined);
     res.json(result);
   } catch (error) {
     console.error('Scan error:', error);
@@ -281,6 +283,8 @@ app.get('/api/scan-etf', async (req, res) => {
   try {
     const now = Date.now();
     const force = req.query.refresh === 'true';
+    const capital = req.query.capital ? parseInt(req.query.capital, 10) : null;
+    const totalCapital = capital || CONFIG.TOTAL_CAPITAL;
 
     if (!force && etfScanCache.data && (now - etfScanCache.timestamp) < etfScanCache.CACHE_TTL) {
       return res.json({ ...etfScanCache.data, cached: true });
@@ -293,7 +297,7 @@ app.get('/api/scan-etf', async (req, res) => {
 
     const scored = etfData.map(d => {
       try {
-        return scoreStock(d);
+        return scoreStock(d, null, totalCapital);
       } catch (err) {
         console.error(`  ❌ Error scoring ETF ${d.symbol}:`, err.message);
         return null;
@@ -301,8 +305,8 @@ app.get('/api/scan-etf', async (req, res) => {
     }).filter(Boolean);
     console.log(`  🧠 Scored ${scored.length} ETFs`);
 
-    const result = rankAndFilterTrades(scored);
-    console.log(`  ✅ Selected ${result.trades.length} ETF trades`);
+    const result = rankAndFilterTrades(scored, totalCapital);
+    console.log(`  ✅ Selected ${result.trades.length} ETF trades (capital: ₹${totalCapital.toLocaleString('en-IN')})`);
 
     etfScanCache.data = result;
     etfScanCache.timestamp = now;

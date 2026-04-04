@@ -1,10 +1,43 @@
-import React from 'react';
-import { Briefcase, TrendingUp, Banknote, Target, Zap, BarChart2 } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Briefcase, TrendingUp, Banknote, Target, Zap, BarChart2, Pencil, Check } from 'lucide-react';
 
-export default function PortfolioSummary({ portfolio }) {
+export default function PortfolioSummary({ portfolio, capital, onCapitalChange }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
+  const inputRef = useRef(null);
+
+  const deploymentPct = portfolio ? (portfolio.deploymentPercent || 0) : 0;
+  const displayCapital = capital || portfolio?.totalCapital || 50000;
+
   if (!portfolio) return null;
 
-  const deploymentPct = portfolio.deploymentPercent || 0;
+  const startEditing = useCallback(() => {
+    setEditValue(String(displayCapital));
+    setIsEditing(true);
+  }, [displayCapital]);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const saveCapital = useCallback(() => {
+    const parsed = parseInt(editValue.replace(/[^0-9]/g, ''), 10);
+    if (!isNaN(parsed) && parsed >= 1000 && onCapitalChange) {
+      onCapitalChange(parsed);
+    }
+    setIsEditing(false);
+  }, [editValue, onCapitalChange]);
+
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === 'Enter') {
+      saveCapital();
+    } else if (e.key === 'Escape') {
+      setIsEditing(false);
+    }
+  }, [saveCapital]);
 
   return (
     <div className="card portfolio-card" id="portfolio-summary">
@@ -14,7 +47,32 @@ export default function PortfolioSummary({ portfolio }) {
 
       <div className="portfolio-total">
         <div className="portfolio-total-label">Total Capital</div>
-        <div className="portfolio-total-value">₹{portfolio.totalCapital?.toLocaleString('en-IN')}</div>
+        {isEditing ? (
+          <div className="capital-edit-row">
+            <span className="capital-currency">₹</span>
+            <input
+              ref={inputRef}
+              type="text"
+              className="capital-input"
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onBlur={saveCapital}
+              inputMode="numeric"
+              autoComplete="off"
+            />
+            <button className="capital-save-btn" onMouseDown={(e) => { e.preventDefault(); saveCapital(); }} title="Save">
+              <Check size={14} />
+            </button>
+          </div>
+        ) : (
+          <div className="capital-display-row" onClick={startEditing} title="Click to edit capital">
+            <div className="portfolio-total-value">₹{displayCapital.toLocaleString('en-IN')}</div>
+            <button className="capital-edit-btn" onClick={(e) => { e.stopPropagation(); startEditing(); }} title="Edit capital">
+              <Pencil size={12} />
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="portfolio-stats">

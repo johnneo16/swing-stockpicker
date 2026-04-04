@@ -85,10 +85,11 @@ async function fetchStockDataYahoo(symbol, days = 90) {
     let dayHigh = lastCandle.high;
     let dayLow = lastCandle.low;
     let dayChange = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
+    let quote = null; // declare at outer scope so return statement can access it
 
     // 1. Try Yahoo Finance quote
     try {
-      const quote = await yahooFinance.quote(yahooSymbol);
+      quote = await yahooFinance.quote(yahooSymbol);
       if (quote && quote.regularMarketPrice) {
         currentPrice = quote.regularMarketPrice;
         currentVolume = quote.regularMarketVolume || currentVolume;

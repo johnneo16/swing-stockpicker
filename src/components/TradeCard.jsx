@@ -1,8 +1,8 @@
 import React, { Suspense } from 'react';
-import { 
-  BarChart2, TrendingUp, Newspaper, CheckCircle2, 
-  AlertTriangle, Target, AlertCircle, Star, ArrowUpRight, 
-  ArrowRight, ArrowDownRight, XCircle 
+import {
+  BarChart2, TrendingUp, Newspaper, CheckCircle2,
+  AlertTriangle, Target, AlertCircle, Star, ArrowUpRight,
+  ArrowRight, ArrowDownRight, XCircle, ExternalLink
 } from 'lucide-react';
 
 const MiniChart = React.lazy(() => import('./MiniChart'));
@@ -28,6 +28,9 @@ const TradeCard = ({ trade }) => {
               <span className={`risk-badge ${trade.riskLevel?.toLowerCase()}`}>
                 {trade.riskLevel} Risk
               </span>
+              {trade.setupType && (
+                <span className="setup-type-badge">{trade.setupType}</span>
+              )}
               {hasFundamentals && fund.fundamentalRating && (
                 <span className={`fund-badge ${fund.fundamentalRating.toLowerCase()}`}>
                   FA: {fund.fundamentalRating}
@@ -50,6 +53,16 @@ const TradeCard = ({ trade }) => {
             {trade.confidenceScore}
           </div>
           <div className="confidence-label">Confidence</div>
+          <a
+            href={`https://www.tradingview.com/chart/?symbol=NSE%3A${trade.symbol}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="tv-link-btn"
+            title="Verify chart on TradingView"
+            onClick={e => e.stopPropagation()}
+          >
+            <ExternalLink size={11} /> TradingView
+          </a>
           {trade.currentMarketPrice && (
             <div style={{ marginTop: '6px', textAlign: 'right' }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-cyan)' }}>
