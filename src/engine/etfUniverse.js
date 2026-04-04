@@ -7,7 +7,6 @@ const ETF_UNIVERSE = [
   { symbol: 'NIFTYBEES', name: 'Nippon Nifty 50 ETF', sector: 'Broad Market', category: 'Index' },
   { symbol: 'JUNIORBEES', name: 'Nippon Nifty Next 50 ETF', sector: 'Broad Market', category: 'Index' },
   { symbol: 'SETFNIF50', name: 'SBI Nifty 50 ETF', sector: 'Broad Market', category: 'Index' },
-  { symbol: 'UTINIFTETF', name: 'UTI Nifty 50 ETF', sector: 'Broad Market', category: 'Index' },
 
   // Bank ETFs
   { symbol: 'BANKBEES', name: 'Nippon Bank Nifty ETF', sector: 'Banking', category: 'Sectoral' },
@@ -30,8 +29,7 @@ const ETF_UNIVERSE = [
   { symbol: 'CONSUMBEES', name: 'Nippon Consumption ETF', sector: 'Consumption', category: 'Thematic' },
   { symbol: 'PHARMABEES', name: 'Nippon Pharma ETF', sector: 'Pharma', category: 'Sectoral' },
 
-  // Midcap / Smallcap
-  { symbol: 'MIDCPBEES', name: 'Nippon Midcap 150 ETF', sector: 'Midcap', category: 'Index' },
+  // Midcap / Momentum
   { symbol: 'MOM50', name: 'MOTILAL Momentum 50 ETF', sector: 'Momentum', category: 'Factor' },
 
   // International

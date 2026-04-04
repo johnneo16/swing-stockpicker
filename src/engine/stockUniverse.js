@@ -102,7 +102,7 @@ const STOCK_UNIVERSE = [
   { symbol: 'CANBK', sector: 'Banking', name: 'Canara Bank' },
   { symbol: 'IDFCFIRSTB', sector: 'Banking', name: 'IDFC First Bank' },
   { symbol: 'FEDERALBNK', sector: 'Banking', name: 'Federal Bank' },
-  { symbol: 'AUFIL', sector: 'Banking', name: 'AU Small Finance' },
+  { symbol: 'AUFIL', sector: 'Banking', name: 'AU Small Finance Bank' },
 ];
 
 // Remove duplicates

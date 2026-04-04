@@ -85,10 +85,10 @@ async function searchSymbol(api, symbol) {
   }
 }
 
-// Well-known NSE symbol tokens (Nifty 50 constituents + popular ETFs)
-// This avoids unnecessary searchScrip API calls
+// Well-known NSE symbol tokens (fetched from Angel One OpenAPIScripMaster.json)
+// Key = symbol used in stockUniverse / etfUniverse, Value = Angel One token
 const SYMBOL_TOKENS = {
-  // Nifty 50 stocks
+  // ── Nifty 50 / Large Cap Stocks ──────────────────────────────────────────
   'RELIANCE': '2885', 'TCS': '11536', 'HDFCBANK': '1333', 'INFY': '1594',
   'ICICIBANK': '4963', 'SBIN': '3045', 'BHARTIARTL': '10604', 'ITC': '1660',
   'HCLTECH': '7229', 'KOTAKBANK': '1922', 'LT': '11483', 'AXISBANK': '5900',
@@ -103,14 +103,58 @@ const SYMBOL_TOKENS = {
   'PIDILITIND': '2664', 'SBILIFE': '21808', 'INDUSINDBK': '5258',
   'TATAPOWER': '3426', 'DRREDDY': '881', 'CIPLA': '694', 'EICHERMOT': '910',
   'APOLLOHOSP': '157', 'GRASIM': '1232', 'TRENT': '1964',
-  'HDFCLIFE': '467', 'LTIM': '17818',
-  // Popular ETFs
+  'HDFCLIFE': '467', 'LTIM': '17818', 'DMART': '19943',
+
+  // ── Additional Stocks (from expanded universe) ───────────────────────────
+  'M&M': '2031',        // Mahindra & Mahindra
+  'SRF': '3273',
+  'AARTIIND': '7',
+  'HINDPETRO': '1406',  // HPCL
+  'BPCL': '526',
+  'GAIL': '4717',
+  'BEL': '383',
+  'HAL': '2303',
+  'DLF': '14732',
+  'GODREJCP': '10099',
+  'DABUR': '772',
+  'COLPAL': '15141',
+  'TATACONSUM': '3432',
+  'TATACOMM': '3721',
+  'JUBLFOOD': '18096',
+  'PAGEIND': '14413',
+  'BERGEPAINT': '404',
+  'HAVELLS': '9819',
+  'VOLTAS': '3718',
+  'CUMMINSIND': '1901',
+  'ABB': '13',
+  'SIEMENS': '3150',
+  'BHEL': '438',
+  'POLYCAB': '9590',
+  'KEI': '13310',
+  'CHOLAFIN': '685',
+  'CANBK': '10794',
+  'IDFCFIRSTB': '11184',
+  'FEDERALBNK': '1023',
+  'AUFIL': '21238',     // AU Small Finance Bank (listed as AUBANK in Angel One)
+
+  // ── ETFs ─────────────────────────────────────────────────────────────────
   'NIFTYBEES': '2489', 'BANKBEES': '5765', 'GOLDBEES': '16600',
-  'ITBEES': '15818', 'CPSEETF': '13085', 'JUNIORBEES': '10576',
-  'SETFNIF50': '18126', 'PSUBNKBEES': '19105',
-  'LIQUIDBEES': '10730', 'SILVERBEES': '25354',
-  // Extra popular
-  'DMART': '19943', 'LTIM': '17818',
+  'ITBEES': '15818', 'JUNIORBEES': '10576', 'SETFNIF50': '18126',
+  'PSUBNKBEES': '19105', 'LIQUIDBEES': '10730', 'SILVERBEES': '25354',
+  'SETFNIFBK': '7361',   // SBI Nifty Bank ETF
+  'MOM50': '19289',      // Motilal Momentum 50
+  'MOM100': '21423',     // Motilal Momentum 100
+  'N100': '22739',       // Motilal Nasdaq 100 (listed as MON100 in Angel One)
+  'MAFANG': '3507',      // Mirae FANG+
+  'HNGSNGBEES': '18284', // Nippon Hang Seng
+  'DIVOPPBEES': '2636',  // Nippon Dividend Opp
+  'CONSUMBEES': '2435',  // Nippon Consumption
+  'PHARMABEES': '4973',  // Nippon Pharma
+  'INFRABEES': '20072',  // Nippon Infra
+  'HDFCGOLD': '19543',   // HDFC Gold ETF
+  'GOLDCASE': '22901',   // ICICI Gold ETF
+  'CPSE': '2328',        // Nippon CPSE ETF (listed as CPSEETF in Angel One)
+  'NETFGILT5Y': '3172',  // Nippon Gilt 5Y (listed as GILT5YBEES in Angel One)
 };
 
 /**
