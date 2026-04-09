@@ -221,12 +221,13 @@ export default function App() {
     } catch (err) {
       clearTimeout(timeoutId);
       setIsLive(false);
-      if (!silent) {
-        if (err.name === 'AbortError') {
-          setError('Market scan is taking longer than expected (large universe). The server is processing — please wait a moment and click Scan again.');
-        } else {
-          setError('Backend not reachable. Start the server with: node server.js');
-        }
+      
+      // If it's a silent initial run but hits the 120s AbortController timeout, 
+      // we STILL want to show the warning rather than silently saying "Offline".
+      if (err.name === 'AbortError') {
+        setError('Market scan is taking longer than expected (large universe). The server is processing in the background — please wait a moment and click Scan again.');
+      } else if (!silent) {
+        setError('Backend not reachable. Start the server with: node server.js');
       }
     } finally {
       if (!silent) setScanning(false);
@@ -253,10 +254,7 @@ export default function App() {
   useEffect(() => { fetchMarketOverview(); }, [fetchMarketOverview]);
 
   useEffect(() => {
-    // Safety: if scan doesn't complete in 30s, clear the loading spinner anyway
-    const safetyTimer = setTimeout(() => setInitialLoad(false), 30_000);
     runScan(true);
-    return () => clearTimeout(safetyTimer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

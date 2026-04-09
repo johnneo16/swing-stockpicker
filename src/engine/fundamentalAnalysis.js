@@ -30,13 +30,13 @@ export async function fetchFundamentals(symbol) {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
       },
-      timeout: 8000
+      timeout: 2500
     }).catch(async (err) => {
       // If consolidated fails (404), fallback to standalone page
       if (err.response && err.response.status === 404) {
         return axios.get(`https://www.screener.in/company/${cleanSymbol}/`, {
           headers: { 'User-Agent': 'Mozilla/5.0' },
-          timeout: 8000
+          timeout: 2500
         });
       }
       throw err;
