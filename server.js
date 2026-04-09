@@ -306,7 +306,8 @@ app.get('/api/scan-etf', async (req, res) => {
     }).filter(Boolean);
     console.log(`  🧠 Scored ${scored.length} ETFs`);
 
-    const result = rankAndFilterTrades(scored, totalCapital);
+    // ETF mode: relax sector concentration (multiple gold/banking ETFs are fine)
+    const result = rankAndFilterTrades(scored, totalCapital, { maxSectorExposure: 5 });
     console.log(`  ✅ Selected ${result.trades.length} ETF trades (capital: ₹${totalCapital.toLocaleString('en-IN')})`);
 
     etfScanCache.data = result;

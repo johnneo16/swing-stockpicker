@@ -181,10 +181,17 @@ export default function App() {
   const runScan = useCallback(async (silent = false) => {
     if (!silent) setScanning(true);
     setError(null);
+
+    // Abort after 120 seconds to prevent infinite loading
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120_000);
+
     try {
       const capitalParam = `&capital=${capital}`;
       const endpoint = scanMode === 'etf' ? `/api/scan-etf?refresh=true${capitalParam}` : `/api/scan?refresh=true${capitalParam}`;
-      const res = await fetch(endpoint);
+      const res = await fetch(endpoint, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       const data = await res.json();
 
@@ -211,10 +218,15 @@ export default function App() {
         setIsLive(false);
       }
       fetchMarketOverview();
-    } catch {
+    } catch (err) {
+      clearTimeout(timeoutId);
       setIsLive(false);
       if (!silent) {
-        setError('Backend not reachable. Start the server with: node server.js');
+        if (err.name === 'AbortError') {
+          setError('Market scan is taking longer than expected (large universe). The server is processing — please wait a moment and click Scan again.');
+        } else {
+          setError('Backend not reachable. Start the server with: node server.js');
+        }
       }
     } finally {
       if (!silent) setScanning(false);
@@ -241,7 +253,10 @@ export default function App() {
   useEffect(() => { fetchMarketOverview(); }, [fetchMarketOverview]);
 
   useEffect(() => {
+    // Safety: if scan doesn't complete in 30s, clear the loading spinner anyway
+    const safetyTimer = setTimeout(() => setInitialLoad(false), 30_000);
     runScan(true);
+    return () => clearTimeout(safetyTimer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

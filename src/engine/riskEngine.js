@@ -4,12 +4,13 @@
  */
 
 const TOTAL_CAPITAL = 50000;
-const MAX_RISK_PERCENT = 0.02;       // 2% max risk per trade
-const DEFAULT_RISK_PERCENT = 0.015;  // 1.5% default risk per trade
+const MAX_RISK_PERCENT = 0.02;           // 2% max risk per trade
+const DEFAULT_RISK_PERCENT = 0.015;      // 1.5% default risk per trade
 const MAX_CONCURRENT_TRADES = 5;
-const CASH_RESERVE_PERCENT = 0.20;   // 20% cash reserve (allows more active deployment)
-const MAX_SECTOR_EXPOSURE = 3;       // Max 3 stocks per sector (allows diverse sector picks)
-const MIN_RISK_REWARD = 1.5;         // Minimum 1:1.5 risk-reward (aligned with scoringEngine pre-filter)
+const CASH_RESERVE_PERCENT = 0.15;       // 15% cash reserve (down from 20% to allow more trades)
+const MAX_SECTOR_EXPOSURE = 3;           // Max 3 stocks per sector
+const MIN_RISK_REWARD = 1.5;             // Minimum 1:1.5 risk-reward
+const MAX_CAPITAL_PER_TRADE = 0.20;      // Cap single trade at 20% of portfolio
 
 /**
  * Calculate position size for a single trade
@@ -21,7 +22,17 @@ export function calculatePositionSize(entryPrice, stopLoss, riskPercent = DEFAUL
 
   if (riskPerShare <= 0) return null;
 
-  const quantity = Math.floor(riskAmount / riskPerShare);
+  // Risk-based quantity
+  const riskQuantity = Math.floor(riskAmount / riskPerShare);
+
+  // Cap: never exceed MAX_CAPITAL_PER_TRADE of total portfolio in one position
+  const maxCapital = capital * MAX_CAPITAL_PER_TRADE;
+  const maxQuantity = Math.floor(maxCapital / entryPrice);
+
+  // Use the smaller of the two
+  const quantity = Math.min(riskQuantity, maxQuantity);
+  if (quantity <= 0) return null;
+
   const capitalRequired = quantity * entryPrice;
 
   return {
@@ -36,8 +47,9 @@ export function calculatePositionSize(entryPrice, stopLoss, riskPercent = DEFAUL
 /**
  * Validate a trade against risk management rules
  */
-export function validateTrade(trade, existingTrades = [], totalCapital = null) {
+export function validateTrade(trade, existingTrades = [], totalCapital = null, options = {}) {
   const capital = totalCapital || TOTAL_CAPITAL;
+  const maxSectorExposure = options.maxSectorExposure ?? MAX_SECTOR_EXPOSURE;
   const issues = [];
   const warnings = [];
 
@@ -51,29 +63,29 @@ export function validateTrade(trade, existingTrades = [], totalCapital = null) {
     issues.push(`Maximum ${MAX_CONCURRENT_TRADES} concurrent trades reached`);
   }
 
-  // 3. Sector concentration
-  const sectorCount = existingTrades.filter(t => t.sector === trade.sector).length;
-  if (sectorCount >= MAX_SECTOR_EXPOSURE) {
-    issues.push(`Sector ${trade.sector} already has ${sectorCount} positions (max ${MAX_SECTOR_EXPOSURE})`);
+  // 3. Sector concentration (relaxed for ETF mode)
+  if (maxSectorExposure < MAX_CONCURRENT_TRADES) {
+    const sectorCount = existingTrades.filter(t => t.sector === trade.sector).length;
+    if (sectorCount >= maxSectorExposure) {
+      issues.push(`Sector ${trade.sector} already has ${sectorCount} positions (max ${maxSectorExposure})`);
+    }
   }
 
-  // 4. Capital availability
+  // 4. Capital availability (hard block only when truly no capital left)
   const deployedCapital = existingTrades.reduce((sum, t) => sum + (t.capitalRequired || 0), 0);
   const availableCapital = capital - deployedCapital;
   const minCashReserve = capital * CASH_RESERVE_PERCENT;
   const maxDeployable = availableCapital - minCashReserve;
 
-  if (trade.capitalRequired > maxDeployable) {
-    if (trade.capitalRequired > availableCapital) {
-      issues.push(`Insufficient capital: need ₹${trade.capitalRequired}, only ₹${Math.round(availableCapital)} available`);
-    } else {
-      warnings.push(`This trade would breach ${CASH_RESERVE_PERCENT * 100}% cash reserve rule`);
-    }
+  if (trade.capitalRequired > availableCapital) {
+    issues.push(`Insufficient capital: need ₹${trade.capitalRequired}, only ₹${Math.round(availableCapital)} available`);
+  } else if (trade.capitalRequired > maxDeployable) {
+    warnings.push(`This trade would breach ${CASH_RESERVE_PERCENT * 100}% cash reserve rule`);
   }
 
-  // 5. Single trade capital limit (max 30% of capital in one trade)
-  if (trade.capitalRequired > capital * 0.30) {
-    warnings.push(`Trade uses ${Math.round((trade.capitalRequired / capital) * 100)}% of capital — consider reducing size`);
+  // 5. Single trade capital limit (flagged as warning only — calculatePositionSize already caps at 20%)
+  if (trade.capitalRequired > capital * MAX_CAPITAL_PER_TRADE) {
+    warnings.push(`Trade uses ${Math.round((trade.capitalRequired / capital) * 100)}% of capital — capped position`);
   }
 
   return {
@@ -121,4 +133,5 @@ export const CONFIG = {
   CASH_RESERVE_PERCENT,
   MAX_SECTOR_EXPOSURE,
   MIN_RISK_REWARD,
+  MAX_CAPITAL_PER_TRADE,
 };

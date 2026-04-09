@@ -228,7 +228,7 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
 /**
  * Run the full scanning pipeline: fetch → analyze → score → rank → filter
  */
-export function rankAndFilterTrades(scoredStocks, totalCapital = null) {
+export function rankAndFilterTrades(scoredStocks, totalCapital = null, options = {}) {
   const valid = scoredStocks.filter(s => s !== null);
 
   // Sort by confidence score descending
@@ -239,7 +239,7 @@ export function rankAndFilterTrades(scoredStocks, totalCapital = null) {
   for (const trade of valid) {
     if (trade.riskRewardRatio < 1.5) continue;
     if (trade.confidenceScore < 28) continue;
-    const validation = validateTrade(trade, selectedTrades, totalCapital);
+    const validation = validateTrade(trade, selectedTrades, totalCapital, options);
     if (validation.valid) {
       trade.validationWarnings = validation.warnings;
       trade.lowConfidence = false;
@@ -249,16 +249,15 @@ export function rankAndFilterTrades(scoredStocks, totalCapital = null) {
   }
 
   // Pass 2: fill remaining slots from best available, no score floor
-  // (marks these as lowConfidence so the UI can warn the user)
   if (selectedTrades.length < 5) {
     const selectedSymbols = new Set(selectedTrades.map(t => t.symbol));
     for (const trade of valid) {
       if (selectedSymbols.has(trade.symbol)) continue;
-      if (trade.riskRewardRatio < 1.0) continue; // absolute minimum
-      const validation = validateTrade(trade, selectedTrades, totalCapital);
+      if (trade.riskRewardRatio < 1.0) continue;
+      const validation = validateTrade(trade, selectedTrades, totalCapital, options);
       if (validation.valid) {
         trade.validationWarnings = validation.warnings;
-        trade.lowConfidence = true; // flag for UI
+        trade.lowConfidence = true;
         selectedTrades.push(trade);
       }
       if (selectedTrades.length >= 5) break;
