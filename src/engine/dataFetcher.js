@@ -217,45 +217,85 @@ export async function fetchMarketIndex(symbol = '^NSEI') {
 }
 
 // ============================================================
-// Batch Fetch — with rate limiting
+// Batch Fetch — price and fundamentals run concurrently
 // ============================================================
 
-export async function batchFetchStocks(stocks, days = 90, concurrency = 2) {
-  const results = [];
+/**
+ * Fetch price data for all stocks in rate-limited batches.
+ * Angel One: 2 concurrent, 300ms delay (no rate limit risk).
+ * Yahoo Finance: 2 concurrent, 3.5s delay (avoids 429s on Render).
+ */
+async function batchFetchPrices(stocks, days) {
+  const concurrency = 2;
+  const delay = USE_ANGELONE ? 300 : 3500;
+  const priceMap = new Map(); // symbol → priceData
 
   for (let i = 0; i < stocks.length; i += concurrency) {
     const batch = stocks.slice(i, i + concurrency);
-    const batchResults = await Promise.allSettled(
-      batch.map(async (s) => {
-        const priceData = await fetchStockData(s.symbol, days);
-        if (!priceData) return null;
-
-        // Fundamentals via Yahoo (even if using Angel One for prices)
-        let fundData = null;
-        try {
-          fundData = await fetchFundamentals(s.symbol);
-        } catch { /* non-critical */ }
-
-        return { ...priceData, fundamentals: fundData };
-      })
+    const settled = await Promise.allSettled(
+      batch.map(s => fetchStockData(s.symbol, days))
     );
-
-    for (let j = 0; j < batchResults.length; j++) {
-      if (batchResults[j].status === 'fulfilled' && batchResults[j].value) {
-        results.push({
-          ...batchResults[j].value,
-          name: batch[j].name,
-          sector: batch[j].sector,
-        });
+    settled.forEach((r, j) => {
+      if (r.status === 'fulfilled' && r.value) {
+        priceMap.set(batch[j].symbol, r.value);
       }
-    }
-
-    // Rate limit: wait 3.5s between batches for Yahoo, 300ms for Angel One
-    // (Render's shared IP gets rate-limited aggressively by Yahoo)
+    });
     if (i + concurrency < stocks.length) {
-      await new Promise(r => setTimeout(r, USE_ANGELONE ? 300 : 3500));
+      await new Promise(r => setTimeout(r, delay));
     }
   }
+  return priceMap;
+}
 
+/**
+ * Fetch fundamentals for all stocks with higher concurrency.
+ * Screener.in tolerates more parallel requests than Yahoo Finance.
+ */
+async function batchFetchFundamentals(stocks) {
+  const concurrency = 8; // Screener.in handles parallelism better
+  const fundMap = new Map(); // symbol → fundData
+
+  for (let i = 0; i < stocks.length; i += concurrency) {
+    const batch = stocks.slice(i, i + concurrency);
+    const settled = await Promise.allSettled(
+      batch.map(s => fetchFundamentals(s.symbol))
+    );
+    settled.forEach((r, j) => {
+      if (r.status === 'fulfilled' && r.value) {
+        fundMap.set(batch[j].symbol, r.value);
+      }
+    });
+    if (i + concurrency < stocks.length) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+  return fundMap;
+}
+
+/**
+ * Main batch fetch — runs price and fundamentals pipelines concurrently.
+ * Total scan time = max(price_time, fund_time) instead of their sum.
+ * With Angel One: ~15-20s. With Yahoo: still slow but fundamentals don't add extra.
+ */
+export async function batchFetchStocks(stocks, days = 90) {
+  // Run both pipelines in parallel
+  const [priceMap, fundMap] = await Promise.all([
+    batchFetchPrices(stocks, days),
+    batchFetchFundamentals(stocks),
+  ]);
+
+  const results = [];
+  for (const s of stocks) {
+    const priceData = priceMap.get(s.symbol);
+    if (!priceData) continue;
+    results.push({
+      ...priceData,
+      name: s.name,
+      sector: s.sector,
+      fundamentals: fundMap.get(s.symbol) || null,
+    });
+  }
+
+  console.log(`  💡 Price data: ${priceMap.size}/${stocks.length} | Fundamentals: ${fundMap.size}/${stocks.length}`);
   return results;
 }

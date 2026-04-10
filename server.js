@@ -136,9 +136,8 @@ async function runScan(force = false, capital = null) {
     console.log('  ⚠️ Could not fetch market context');
   }
 
-  // 2. Fetch data + fundamentals for all stocks (300 calendar days ensures >200 trading candles for 200 EMA)
-  // concurrency=2 prevents Yahoo Finance 429 rate-limiting from Render's shared IP
-  const stocksData = await batchFetchStocks(STOCK_UNIVERSE, 300, 2);
+  // 2. Fetch price + fundamentals concurrently (two parallel pipelines)
+  const stocksData = await batchFetchStocks(STOCK_UNIVERSE, 300);
   console.log(`  📊 Fetched data for ${stocksData.length}/${STOCK_UNIVERSE.length} stocks`);
 
   // 3. Score each stock (now with market context)
@@ -212,6 +211,15 @@ function startScheduler() {
 // API Endpoints
 // ============================================================
 
+// Timeout wrapper — ensures Render's 30s proxy limit is never breached
+const SCAN_TIMEOUT_MS = 25000;
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`Scan timed out after ${ms / 1000}s`)), ms)),
+  ]);
+}
+
 /**
  * GET /api/scan — Run full market scan
  */
@@ -219,7 +227,18 @@ app.get('/api/scan', async (req, res) => {
   try {
     const force = req.query.refresh === 'true';
     const capital = req.query.capital ? parseInt(req.query.capital, 10) : null;
-    const result = await runScan(force, capital || undefined);
+
+    // If stale cache exists and scan times out, return stale cache rather than 503
+    const result = await withTimeout(runScan(force, capital || undefined), SCAN_TIMEOUT_MS)
+      .catch(err => {
+        console.warn('⚠️ Scan timeout:', err.message);
+        if (scanCache.data) {
+          console.log('  ↩ Returning stale cache');
+          return { ...scanCache.data, cached: true, timedOut: true, cachedAt: new Date(scanCache.timestamp).toISOString() };
+        }
+        throw err; // no cache at all — propagate
+      });
+
     res.json(result);
   } catch (error) {
     console.error('Scan error:', error);
@@ -293,32 +312,30 @@ app.get('/api/scan-etf', async (req, res) => {
 
     console.log(`\n[${new Date().toISOString()}] 🔍 Starting ETF scan...`);
 
-    const etfData = await batchFetchStocks(ETF_UNIVERSE, 300, 2);
-    console.log(`  📊 Fetched data for ${etfData.length}/${ETF_UNIVERSE.length} ETFs`);
+    const runEtfScan = async () => {
+      const etfData = await batchFetchStocks(ETF_UNIVERSE, 300);
+      console.log(`  📊 Fetched data for ${etfData.length}/${ETF_UNIVERSE.length} ETFs`);
 
-    const scored = etfData.map(d => {
-      try {
-        return scoreStock(d, null, totalCapital);
-      } catch (err) {
-        console.error(`  ❌ Error scoring ETF ${d.symbol}:`, err.message);
-        return null;
-      }
-    }).filter(Boolean);
-    console.log(`  🧠 Scored ${scored.length} ETFs`);
+      const scored = etfData.map(d => {
+        try { return scoreStock(d, null, totalCapital); }
+        catch (err) { console.error(`  ❌ Error scoring ETF ${d.symbol}:`, err.message); return null; }
+      }).filter(Boolean);
 
-    // ETF mode: relax sector concentration (multiple gold/banking ETFs are fine)
-    const result = rankAndFilterTrades(scored, totalCapital, { maxSectorExposure: 5 });
-    console.log(`  ✅ Selected ${result.trades.length} ETF trades (capital: ₹${totalCapital.toLocaleString('en-IN')})`);
+      const result = rankAndFilterTrades(scored, totalCapital, { maxSectorExposure: 5 });
+      console.log(`  ✅ Selected ${result.trades.length} ETF trades`);
+      etfScanCache.data = result;
+      etfScanCache.timestamp = now;
+      return { ...result, cached: false, scannedAt: new Date().toISOString(), etfsAnalyzed: etfData.length };
+    };
 
-    etfScanCache.data = result;
-    etfScanCache.timestamp = now;
+    const result = await withTimeout(runEtfScan(), SCAN_TIMEOUT_MS)
+      .catch(err => {
+        console.warn('⚠️ ETF scan timeout:', err.message);
+        if (etfScanCache.data) return { ...etfScanCache.data, cached: true, timedOut: true };
+        throw err;
+      });
 
-    res.json({
-      ...result,
-      cached: false,
-      scannedAt: new Date().toISOString(),
-      etfsAnalyzed: etfData.length,
-    });
+    res.json(result);
   } catch (error) {
     console.error('ETF scan error:', error);
     res.status(500).json({ error: 'ETF scan failed', message: error.message });
