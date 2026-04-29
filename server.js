@@ -9,6 +9,18 @@ import { calculatePortfolioSummary, CONFIG } from './src/engine/riskEngine.js';
 import STOCK_UNIVERSE from './src/engine/stockUniverse.js';
 import ETF_UNIVERSE from './src/engine/etfUniverse.js';
 
+// New persistence + lifecycle modules (Phase 1+2 build-out)
+import { dbHealthCheck, scansRepo, backtestRepo, tradesRepo } from './src/persistence/db.js';
+import {
+  openPosition, listOpenPositions, markAllToMarket,
+  portfolioSummary as livePortfolioSummary, fetchLastPrice,
+} from './src/lifecycle/positionTracker.js';
+import { runExitCycle, evaluateExit } from './src/lifecycle/exitEngine.js';
+import {
+  refreshEarningsCalendar, isEarningsBlackout, listUpcomingEvents,
+} from './src/intelligence/earningsFetcher.js';
+import { refreshRegime, getRegime, regimeBias } from './src/intelligence/regimeDetector.js';
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -153,19 +165,51 @@ async function runScan(force = false, capital = null) {
 
   // 4. Rank and filter
   const result = rankAndFilterTrades(scored, totalCapital);
+
+  // 4b. Enrich each trade with upcoming-event flags (earnings blackout etc.)
+  let blackoutCount = 0;
+  for (const t of result.trades) {
+    const event = isEarningsBlackout(t.symbol, 14, ['earnings']);
+    if (event) {
+      t.upcomingEvent = event;
+      // Hard-block if earnings within 2 days; warn otherwise
+      if (event.daysUntil <= 2) {
+        t.eventBlackout = true;
+        blackoutCount++;
+      }
+    }
+  }
+  if (blackoutCount > 0) {
+    console.log(`  ⚠ ${blackoutCount} trade(s) flagged as earnings-blackout`);
+  }
+
   console.log(`  ✅ Selected ${result.trades.length} trades (capital: ₹${totalCapital.toLocaleString('en-IN')})`);
 
   if (result.trades.length > 0) {
     result.trades.forEach(t => {
-      console.log(`     📌 ${t.symbol} — Score: ${t.confidenceScore}, Entry: ₹${t.entryPrice}, R:R 1:${t.riskRewardRatio}`);
+      const flag = t.eventBlackout ? ' 🚨EARNINGS' : t.upcomingEvent ? ` (earnings d+${t.upcomingEvent.daysUntil})` : '';
+      console.log(`     📌 ${t.symbol} — Score: ${t.confidenceScore}, Entry: ₹${t.entryPrice}, R:R 1:${t.riskRewardRatio}${flag}`);
     });
   }
 
-  // 5. Cache
+  // 5. Cache + persist
   scanCache.data = result;
   scanCache.timestamp = now;
   scheduler.lastScan = new Date().toISOString();
   scheduler.scanCount++;
+
+  // Persist scan to DB for historical analysis (best-effort, non-blocking)
+  try {
+    scansRepo.save({
+      capital: totalCapital,
+      scanType: 'stock',
+      totalPicks: scored.length,
+      trades: result.trades,
+      marketContext,
+    });
+  } catch (e) {
+    console.warn('  ⚠ Failed to persist scan:', e.message);
+  }
 
   return {
     ...result,
@@ -357,6 +401,155 @@ app.get('/api/scheduler/status', (req, res) => {
 });
 
 // ============================================================
+// Phase 1+2 — Paper Trading, Lifecycle, Backtest Endpoints
+// ============================================================
+
+/**
+ * GET /api/health/db — DB health & schema check
+ */
+app.get('/api/health/db', (req, res) => {
+  try { res.json(dbHealthCheck()); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+/**
+ * POST /api/positions/open — open a paper position from a scored trade payload
+ *   body: { trade: {...}, mode?: 'paper'|'live' }
+ */
+app.post('/api/positions/open', (req, res) => {
+  try {
+    const { trade, mode = 'paper' } = req.body || {};
+    if (!trade?.symbol) return res.status(400).json({ error: 'trade.symbol is required' });
+    const opened = openPosition(trade, mode);
+    res.json({ ok: true, position: opened });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/positions — list open positions (does NOT fetch fresh prices)
+ *   ?mode=paper|live
+ */
+app.get('/api/positions', (req, res) => {
+  const mode = req.query.mode === 'live' ? 'live' : 'paper';
+  res.json({ mode, positions: listOpenPositions(mode) });
+});
+
+/**
+ * POST /api/positions/refresh — mark-to-market all open positions
+ */
+app.post('/api/positions/refresh', async (req, res) => {
+  try {
+    const mode = req.body?.mode === 'live' ? 'live' : 'paper';
+    const summaries = await markAllToMarket(mode);
+    res.json({ mode, positions: summaries });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/positions/exit-cycle — evaluate exit rules and apply actions
+ */
+app.post('/api/positions/exit-cycle', async (req, res) => {
+  try {
+    const mode = req.body?.mode === 'live' ? 'live' : 'paper';
+    const rules = req.body?.rules || {};
+    // Always refresh first
+    await markAllToMarket(mode);
+    const result = await runExitCycle(mode, rules);
+    res.json({ mode, ...result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/portfolio/live — aggregate paper portfolio summary from DB
+ */
+app.get('/api/portfolio/live', (req, res) => {
+  const mode    = req.query.mode === 'live' ? 'live' : 'paper';
+  const capital = parseInt(req.query.capital || CONFIG.TOTAL_CAPITAL, 10);
+  res.json({ mode, ...livePortfolioSummary(mode, capital) });
+});
+
+/**
+ * GET /api/trades/history — recently closed trades for journal view
+ */
+app.get('/api/trades/history', (req, res) => {
+  const mode  = req.query.mode === 'live' ? 'live' : 'paper';
+  const limit = Math.min(200, parseInt(req.query.limit || '50', 10));
+  res.json({ mode, trades: tradesRepo.getRecentClosed(mode, limit) });
+});
+
+/**
+ * GET /api/regime — current market regime snapshot (cached, refreshed if stale)
+ */
+app.get('/api/regime', async (req, res) => {
+  try {
+    const force = req.query.refresh === 'true';
+    const snap = await getRegime({ forceRefresh: force });
+    res.json({ ...snap, bias: regimeBias(snap.regime) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/regime/refresh — force refresh regime snapshot
+ */
+app.post('/api/regime/refresh', async (req, res) => {
+  try {
+    const snap = await refreshRegime();
+    res.json({ ok: true, ...snap, bias: regimeBias(snap.regime) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/events/refresh — refresh upcoming-events cache from NSE
+ *   body: { daysAhead?: number }
+ */
+app.post('/api/events/refresh', async (req, res) => {
+  try {
+    const days = parseInt(req.body?.daysAhead || '14', 10);
+    const result = await refreshEarningsCalendar({ daysAhead: days });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/events/upcoming — list upcoming events for the universe
+ *   ?days=14&types=earnings,dividend
+ */
+app.get('/api/events/upcoming', (req, res) => {
+  const days  = Math.min(60, parseInt(req.query.days || '14', 10));
+  const types = req.query.types ? req.query.types.split(',') : null;
+  res.json({ days, events: listUpcomingEvents(days, types) });
+});
+
+/**
+ * GET /api/backtests — list recent backtest runs
+ */
+app.get('/api/backtests', (req, res) => {
+  const limit = Math.min(50, parseInt(req.query.limit || '20', 10));
+  res.json({ runs: backtestRepo.list(limit) });
+});
+
+/**
+ * GET /api/backtests/:id — full backtest run with trades
+ */
+app.get('/api/backtests/:id', (req, res) => {
+  const run = backtestRepo.get(parseInt(req.params.id, 10));
+  if (!run) return res.status(404).json({ error: 'Not found' });
+  res.json(run);
+});
+
+// ============================================================
 // SPA Catch-all (must be after all API routes)
 // ============================================================
 
@@ -380,4 +573,24 @@ app.listen(PORT, () => {
   if (scheduler.enabled) {
     startScheduler();
   }
+
+  // Initial earnings-calendar warm-up (best-effort, non-blocking)
+  setTimeout(async () => {
+    try {
+      const r = await refreshEarningsCalendar({ daysAhead: 14 });
+      console.log(`📅 Earnings calendar warmed: ${r.kept}/${r.fetched} events kept`);
+    } catch (e) {
+      console.warn('📅 Earnings warm-up failed:', e.message);
+    }
+  }, 8000);
+
+  // Refresh earnings calendar twice daily (07:30 + 16:30 IST)
+  setInterval(async () => {
+    try {
+      const r = await refreshEarningsCalendar({ daysAhead: 14 });
+      console.log(`📅 [cron] Refreshed earnings calendar: ${r.kept}/${r.fetched} kept`);
+    } catch (e) {
+      console.warn('📅 [cron] Refresh failed:', e.message);
+    }
+  }, 6 * 60 * 60 * 1000); // every 6 hours
 });
