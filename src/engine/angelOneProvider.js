@@ -1,5 +1,12 @@
 import { SmartAPI } from 'smartapi-javascript';
 import { TOTP } from 'totp-generator';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+const TOKEN_MAP_PATH = path.resolve(__dirname, '..', '..', 'data', 'angelone-tokens.json');
 
 /**
  * Angel One SmartAPI Data Provider
@@ -85,9 +92,31 @@ async function searchSymbol(api, symbol) {
   }
 }
 
-// Well-known NSE symbol tokens (fetched from Angel One OpenAPIScripMaster.json)
-// Key = symbol used in stockUniverse / etfUniverse, Value = Angel One token
-const SYMBOL_TOKENS = {
+// Manual overrides for symbols whose Angel One name differs from our universe.
+// These are merged on top of the JSON-loaded token map.
+const MANUAL_OVERRIDES = {
+  'AUFIL':       '21238', // listed as AUBANK in Angel One
+  'NIPPONLIFE':  '17400', // listed as NAM-INDIA
+  'LTIM':        '17818', // listed as LTIMINDTREE
+  'GMRINFRA':    '13528', // listed as GMRP&UI / GMRP_UI
+  'ZOMATO':      '5097',  // rebranded to ETERNAL in 2025
+  'CPSE':        '2328',  // listed as CPSEETF
+  'N100':        '22739', // listed as MON100
+  'NETFGILT5Y':  '3172',  // listed as GILT5YBEES
+  'MAFANG':      '3507',  // Mirae FANG+
+};
+
+// Load token map from JSON if available; otherwise use empty object.
+// Run `node scripts/buildAngelOneTokenMap.js` to (re)generate.
+let _loadedTokens = {};
+try {
+  if (fs.existsSync(TOKEN_MAP_PATH)) {
+    _loadedTokens = JSON.parse(fs.readFileSync(TOKEN_MAP_PATH, 'utf8')).tokens || {};
+  }
+} catch (_) { /* fall back to manual map below */ }
+
+// Final symbol → token map: JSON ⊕ manual overrides.
+const SYMBOL_TOKENS = { ..._loadedTokens, ...MANUAL_OVERRIDES, ...{
   // ── Nifty 50 / Large Cap Stocks ──────────────────────────────────────────
   'RELIANCE': '2885', 'TCS': '11536', 'HDFCBANK': '1333', 'INFY': '1594',
   'ICICIBANK': '4963', 'SBIN': '3045', 'BHARTIARTL': '10604', 'ITC': '1660',
@@ -155,7 +184,7 @@ const SYMBOL_TOKENS = {
   'GOLDCASE': '22901',   // ICICI Gold ETF
   'CPSE': '2328',        // Nippon CPSE ETF (listed as CPSEETF in Angel One)
   'NETFGILT5Y': '3172',  // Nippon Gilt 5Y (listed as GILT5YBEES in Angel One)
-};
+}};
 
 /**
  * Get symbol token for a given NSE symbol
@@ -210,6 +239,57 @@ export async function fetchAngelOneLTP(symbol) {
     console.error(`Angel One LTP failed for ${symbol}:`, error.message);
     return null;
   }
+}
+
+/**
+ * Fetch raw historical candles for an arbitrary date range.
+ * Used by the backtester. Returns plain OHLCV array, no LTP enrichment.
+ *
+ * @param {string} symbol — bare NSE symbol (e.g. "RELIANCE")
+ * @param {string|Date} fromDate — ISO date or Date
+ * @param {string|Date} toDate
+ * @returns {Promise<Array<{date,open,high,low,close,volume}>>}
+ */
+export async function fetchAngelOneCandles(symbol, fromDate, toDate) {
+  const api = await ensureSession();
+  const token = SYMBOL_TOKENS[symbol];
+  if (!token) {
+    throw new Error(`Angel One: No token mapping for ${symbol}`);
+  }
+
+  const fmt = (d) => {
+    const dt = new Date(d);
+    const yyyy = dt.getFullYear();
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd} 09:15`;
+  };
+
+  const result = await api.getCandleData({
+    exchange: 'NSE',
+    symboltoken: token,
+    interval: 'ONE_DAY',
+    fromdate: fmt(fromDate),
+    todate: fmt(toDate),
+  });
+
+  if (!result?.data?.length) return [];
+
+  return result.data.map(c => ({
+    date: new Date(c[0]),
+    open: c[1],
+    high: c[2],
+    low: c[3],
+    close: c[4],
+    volume: c[5] || 0,
+  }));
+}
+
+/**
+ * Check if a symbol has an Angel One token (needed for historical fetch).
+ */
+export function hasAngelOneToken(symbol) {
+  return Boolean(SYMBOL_TOKENS[symbol]);
 }
 
 /**
