@@ -7,16 +7,18 @@ import { scoreFundamentals, generateFundamentalSummary } from './fundamentalAnal
  * Combines technical, fundamental, and market signals into a 0-100 confidence score.
  */
 
-// Revised scoring weights (total = 100)
+// Wall Street-level scoring weights (total = 100)
 const WEIGHTS = {
-  trend: 15,
-  momentum: 18,
-  volume: 12,
-  priceAction: 13,
+  trend: 13,
+  momentum: 15,
+  volume: 10,
+  priceAction: 11,
   riskReward: 12,
-  psychology: 10,
+  psychology: 9,
   fundamentals: 10,
   marketContext: 10,
+  patterns: 5,    // candlestick patterns
+  structure: 5,   // HH/HL + OBV
 };
 
 /**
@@ -103,9 +105,30 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   }
   contextScore = Math.max(0, Math.min(contextScore, WEIGHTS.marketContext));
 
+  // === CANDLESTICK PATTERN SCORE (0-5) ===
+  let patternScore = 0;
+  if (signals.threeWhiteSoldiers) patternScore = 5;
+  else if (signals.morningStar) patternScore = 5;
+  else if (signals.bullishEngulfing) patternScore = 4;
+  else if (signals.hammer) patternScore = 3;
+  else if (signals.dragonflyDoji) patternScore = 3;
+  else if (signals.bullishHarami) patternScore = 2;
+  patternScore = Math.min(patternScore, WEIGHTS.patterns);
+
+  // === MARKET STRUCTURE SCORE (0-5) — HH/HL + OBV ===
+  let structureScore = 0;
+  if (signals.higherHighs && signals.higherLows) structureScore += 4;
+  else if (signals.higherLows) structureScore += 3;
+  else if (signals.higherHighs) structureScore += 2;
+  if (signals.bullishDivergence) structureScore += 2;
+  else if (signals.obvRising) structureScore += 1;
+  if (signals.inDowntrend) structureScore -= 2;
+  structureScore = Math.max(0, Math.min(structureScore, WEIGHTS.structure));
+
   // === TOTAL SCORE ===
   const totalScore = trendScore + momentumScore + volumeScore + priceActionScore
-    + rrScore + psychScore + fundamentalScore + contextScore;
+    + rrScore + psychScore + fundamentalScore + contextScore
+    + patternScore + structureScore;
 
   // === POSITION SIZING ===
   const position = calculatePositionSize(stockData.currentPrice, levels.stopLoss, undefined, totalCapital);
@@ -120,10 +143,16 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   let setupType = 'Trend Analysis';
   if (signals.breakingOut && signals.strongTrend) setupType = 'Breakout + ADX Trend';
   else if (signals.breakingOut) setupType = 'Breakout';
+  else if (signals.threeWhiteSoldiers) setupType = 'Three White Soldiers';
+  else if (signals.morningStar && signals.nearSupport) setupType = 'Morning Star Reversal';
+  else if (signals.bullishEngulfing && signals.nearSupport) setupType = 'Engulfing at Support';
+  else if (signals.hammer && signals.nearSupport) setupType = 'Hammer at Support';
+  else if (signals.bullishDivergence) setupType = 'OBV Bullish Divergence';
   else if (signals.nearSupport && signals.rsiOversold) setupType = 'Pullback / RSI Reversal';
   else if (signals.bbSqueezing) setupType = 'Bollinger Squeeze';
   else if (signals.nearLowerBB && signals.rsiOversold) setupType = 'Mean Reversion';
   else if (signals.macdBullishCross) setupType = 'MACD Crossover';
+  else if (signals.inUptrend && signals.macdBullish) setupType = 'HH/HL Trend Continuation';
   else if (signals.consolidating && signals.nearSupport) setupType = 'Consolidation + Support';
   else if (signals.trendAligned && signals.macdBullish) setupType = 'Trend Continuation';
   else if (signals.volumeSpike) setupType = 'Volume Surge';
@@ -158,6 +187,7 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
     stopLoss: levels.stopLoss,
     targetPrice: levels.target,
     riskRewardRatio: levels.riskRewardRatio,
+    estimatedDays: levels.estimatedDays,
 
     // Position sizing
     riskAmount: position.riskAmount,
@@ -221,6 +251,8 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
       psychology: Math.round(psychScore * 10) / 10,
       fundamentals: Math.round(fundamentalScore * 10) / 10,
       marketContext: Math.round(contextScore * 10) / 10,
+      patterns: Math.round(patternScore * 10) / 10,
+      structure: Math.round(structureScore * 10) / 10,
     },
   };
 }
@@ -270,13 +302,22 @@ export function rankAndFilterTrades(scoredStocks, totalCapital = null, options =
 
 function generateWhyWorks(signals, indicators, fundResult) {
   const reasons = [];
-  if (signals.trendAligned) reasons.push('Strong uptrend with aligned EMAs');
-  if (signals.strongTrend) reasons.push('ADX confirms strong trending move');
+  if (signals.trendAligned) reasons.push('Strong uptrend with aligned EMAs (20 > 50)');
+  if (signals.inUptrend) reasons.push('Market structure confirms Higher Highs + Higher Lows');
+  else if (signals.higherLows) reasons.push('Higher Lows forming — buyers absorbing dips');
+  if (signals.strongTrend) reasons.push(`ADX ${indicators.adx} confirms strong trending move`);
   if (signals.macdBullishCross) reasons.push('Fresh MACD crossover signal');
-  if (signals.volumeAboveAvg) reasons.push('Above-average volume confirmation');
-  if (signals.nearSupport) reasons.push('Good risk-reward near support');
-  if (signals.breakingOut) reasons.push('Breakout with volume support');
-  if (signals.rsiNeutralBullish) reasons.push('RSI in healthy momentum zone');
+  if (signals.bullishDivergence) reasons.push('OBV bullish divergence — accumulation hidden in price weakness');
+  else if (signals.obvRising) reasons.push('OBV trending up — volume confirms price action');
+  if (signals.threeWhiteSoldiers) reasons.push('Three White Soldiers — sustained institutional buying');
+  else if (signals.morningStar) reasons.push('Morning Star reversal pattern');
+  else if (signals.bullishEngulfing) reasons.push('Bullish Engulfing — buyers overwhelmed sellers');
+  else if (signals.hammer) reasons.push('Hammer candle — clear rejection of lower prices');
+  if (signals.volumeSpike) reasons.push('Volume spike — institutional participation');
+  else if (signals.volumeAboveAvg) reasons.push('Above-average volume confirmation');
+  if (signals.nearSupport && !signals.breakingOut) reasons.push('Entry near support — defined risk');
+  if (signals.breakingOut) reasons.push('Breakout above resistance with volume');
+  if (signals.rsiNeutralBullish) reasons.push('RSI in healthy momentum zone (40-65)');
   if (signals.bbSqueezing) reasons.push('Bollinger Band squeeze — big move pending');
   if (fundResult && fundResult.score >= 7) reasons.push(`Strong fundamentals (${fundResult.rating})`);
   return reasons.length > 0 ? reasons.join('. ') + '.' : 'Setup meets minimum criteria.';
@@ -288,11 +329,14 @@ function generateWhyNot(signals, indicators, stockData) {
   if (stockData.dayChange > 4) risks.push('Already extended today — FOMO risk');
   if (!signals.volumeAboveAvg) risks.push('Volume below average — weak participation');
   if (!signals.trendAligned) risks.push('Trend not fully aligned — conflicting signals');
-  if (signals.nearResistance) risks.push('Near resistance — potential rejection');
+  if (signals.inDowntrend) risks.push('Market structure: Lower Highs + Lower Lows — counter-trend trade');
+  else if (signals.lowerHighs) risks.push('Most recent swing high is lower — momentum fading');
+  if (!signals.obvRising) risks.push('OBV not confirming — volume not supporting move');
+  if (signals.nearResistance && !signals.breakingOut) risks.push('Near resistance — potential rejection');
   if (signals.weakTrend) risks.push(`ADX ${indicators.adx} — no clear trend, range-bound risk`);
   if (signals.nearUpperBB) risks.push('Near upper Bollinger Band — overextended');
   if (indicators.atr > stockData.currentPrice * 0.04) risks.push('High ATR — volatile stock, wider stops needed');
   if (stockData.fundamentals?.debtToEquity > 2) risks.push(`High debt (D/E: ${stockData.fundamentals.debtToEquity}) — financial risk`);
-  risks.push('General market risk — always use stop loss');
+  risks.push('General market risk — always honor stop loss');
   return risks.join('. ') + '.';
 }

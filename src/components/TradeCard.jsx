@@ -14,7 +14,17 @@ const TradeCard = ({ trade }) => {
   const hasFundamentals = fund && (fund.peRatio || fund.roe || fund.marketCap);
 
   return (
-    <div className={`trade-card${trade.lowConfidence ? ' trade-card-low-conf' : ''}`} id={`trade-${trade.symbol}`}>
+    <div className={`trade-card${trade.lowConfidence ? ' trade-card-low-conf' : ''}${trade.eventBlackout ? ' trade-card-blackout' : ''}`} id={`trade-${trade.symbol}`}>
+      {trade.eventBlackout && (
+        <div className="event-blackout-banner">
+          🚨 EARNINGS BLACKOUT — {trade.upcomingEvent.eventType} on {trade.upcomingEvent.eventDate} (in {trade.upcomingEvent.daysUntil} day{trade.upcomingEvent.daysUntil === 1 ? '' : 's'}). Do NOT enter — gap-down risk.
+        </div>
+      )}
+      {!trade.eventBlackout && trade.upcomingEvent && (
+        <div className="event-warning-banner">
+          📅 {trade.upcomingEvent.eventType} on {trade.upcomingEvent.eventDate} (in {trade.upcomingEvent.daysUntil} day{trade.upcomingEvent.daysUntil === 1 ? '' : 's'}) — review before entering
+        </div>
+      )}
       {trade.lowConfidence && (
         <div className="low-conf-banner">
           ⚠ Watch Only — Score below threshold, verify before acting
@@ -106,6 +116,12 @@ const TradeCard = ({ trade }) => {
             <div className="level-label">R:R Ratio</div>
             <div className="level-value rr">1:{trade.riskRewardRatio}</div>
           </div>
+          {trade.estimatedDays && (
+            <div className="level-item">
+              <div className="level-label">Hold</div>
+              <div className="level-value duration">~{trade.estimatedDays}d</div>
+            </div>
+          )}
         </div>
 
         {/* Position Sizing */}
@@ -260,15 +276,17 @@ const TradeCard = ({ trade }) => {
 
         {/* Score Breakdown */}
         {trade.scoreBreakdown && (
-          <div className="score-breakdown" title="Trend | Momentum | Volume | Price Action | R:R | Psychology | Fundamentals | Market">
-            <div className="score-bar-segment trend" style={{ width: `${(trade.scoreBreakdown.trend / 15) * 100}%` }} />
-            <div className="score-bar-segment momentum" style={{ width: `${(trade.scoreBreakdown.momentum / 18) * 100}%` }} />
-            <div className="score-bar-segment volume" style={{ width: `${(trade.scoreBreakdown.volume / 12) * 100}%` }} />
-            <div className="score-bar-segment price-action" style={{ width: `${(trade.scoreBreakdown.priceAction / 13) * 100}%` }} />
+          <div className="score-breakdown" title="Trend | Momentum | Volume | Price Action | R:R | Psychology | Fundamentals | Market | Patterns | Structure">
+            <div className="score-bar-segment trend" style={{ width: `${(trade.scoreBreakdown.trend / 13) * 100}%` }} />
+            <div className="score-bar-segment momentum" style={{ width: `${(trade.scoreBreakdown.momentum / 15) * 100}%` }} />
+            <div className="score-bar-segment volume" style={{ width: `${(trade.scoreBreakdown.volume / 10) * 100}%` }} />
+            <div className="score-bar-segment price-action" style={{ width: `${(trade.scoreBreakdown.priceAction / 11) * 100}%` }} />
             <div className="score-bar-segment risk-reward" style={{ width: `${(trade.scoreBreakdown.riskReward / 12) * 100}%` }} />
-            <div className="score-bar-segment psychology" style={{ width: `${(trade.scoreBreakdown.psychology / 10) * 100}%` }} />
+            <div className="score-bar-segment psychology" style={{ width: `${(trade.scoreBreakdown.psychology / 9) * 100}%` }} />
             <div className="score-bar-segment fundamentals" style={{ width: `${((trade.scoreBreakdown.fundamentals || 0) / 10) * 100}%` }} />
             <div className="score-bar-segment market-ctx" style={{ width: `${((trade.scoreBreakdown.marketContext || 0) / 10) * 100}%` }} />
+            <div className="score-bar-segment patterns" style={{ width: `${((trade.scoreBreakdown.patterns || 0) / 5) * 100}%` }} />
+            <div className="score-bar-segment structure" style={{ width: `${((trade.scoreBreakdown.structure || 0) / 5) * 100}%` }} />
           </div>
         )}
 

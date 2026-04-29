@@ -30,3 +30,20 @@ Thumbs.db
 test_*.mjs
 gfinance.html
 yf_test.mjs
+
+# SwingPro persistence + cache (machine-local state)
+data/swingpro.db
+data/swingpro.db-wal
+data/swingpro.db-shm
+data/historical/
+
+# Agent / IDE configs (machine-local)
+.claude/
+.cursor/
+.cursorrules
+.mcp.json
+.opencode.json
+.windsurfrules
+AGENTS.md
+CLAUDE.md
+GEMINI.md

@@ -603,6 +603,7 @@ body::before {
 .level-value.stop-loss { color: var(--loss); }
 .level-value.target { color: var(--profit); }
 .level-value.rr { color: var(--accent-violet); }
+.level-value.duration { color: #facc15; }
 
 /* Position sizing section */
 .position-section {
@@ -1129,6 +1130,8 @@ body::before {
 .score-bar-segment.psychology { background: #ec4899; }
 .score-bar-segment.fundamentals { background: #06b6d4; }
 .score-bar-segment.market-ctx { background: #8b5cf6; }
+.score-bar-segment.patterns { background: #facc15; }
+.score-bar-segment.structure { background: #14b8a6; }
 
 /* === Section Divider === */
 .section-divider {
@@ -1233,6 +1236,30 @@ body::before {
   background: rgba(245, 158, 11, 0.10);
   border-bottom: 1px solid rgba(245, 158, 11, 0.25);
   color: var(--warning);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 6px 16px;
+  letter-spacing: 0.02em;
+}
+
+/* Earnings blackout — hard stop */
+.trade-card-blackout {
+  border-color: rgba(239, 68, 68, 0.55) !important;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.20);
+}
+.event-blackout-banner {
+  background: rgba(239, 68, 68, 0.14);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 8px 16px;
+  letter-spacing: 0.02em;
+}
+.event-warning-banner {
+  background: rgba(56, 189, 248, 0.10);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.25);
+  color: #7dd3fc;
   font-size: 0.72rem;
   font-weight: 600;
   padding: 6px 16px;
