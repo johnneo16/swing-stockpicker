@@ -13,11 +13,65 @@ const MIN_RISK_REWARD = 1.5;             // Minimum 1:1.5 risk-reward
 const MAX_CAPITAL_PER_TRADE = 0.20;      // Cap single trade at 20% of portfolio
 
 /**
- * Calculate position size for a single trade
+ * Volatility-adjusted risk multiplier.
+ * Inputs: ATR (14), entry price, optional confidence score.
+ *
+ * Logic:
+ *  - ATR/price ratio measures how violently the stock moves day-to-day.
+ *  - Wide-ATR stocks need wider stops; if we use the same risk-rupees,
+ *    we end up with tiny share counts. Worse, the wider stop means
+ *    bigger gap-down exposure when it does fail.
+ *  - Conversely, low-ATR stocks (think large-cap defensives) can carry
+ *    slightly more risk because their downside is more bounded.
+ *  - Confidence score (0–100) adds a smaller secondary nudge.
+ *
+ * Returns multiplier in [0.6, 1.3] applied to base risk %.
  */
-export function calculatePositionSize(entryPrice, stopLoss, riskPercent = DEFAULT_RISK_PERCENT, totalCapital = null) {
+export function volAdjustedRiskMultiplier(entryPrice, atr, confidenceScore = null) {
+  if (!atr || !entryPrice || entryPrice <= 0) return 1.0;
+  const atrPct = atr / entryPrice;
+
+  let mult;
+  if (atrPct >= 0.05)        mult = 0.60;  // very volatile (≥5% daily true range)
+  else if (atrPct >= 0.035)  mult = 0.75;  // high vol
+  else if (atrPct >= 0.025)  mult = 0.90;  // moderate-high
+  else if (atrPct >= 0.015)  mult = 1.00;  // normal
+  else if (atrPct >= 0.010)  mult = 1.10;  // low vol
+  else                        mult = 1.20;  // very low vol (<1% daily)
+
+  // Confidence nudge: ±10% over the vol mult
+  if (confidenceScore != null) {
+    if (confidenceScore >= 75)      mult *= 1.10;
+    else if (confidenceScore >= 65) mult *= 1.05;
+    else if (confidenceScore < 50)  mult *= 0.92;
+  }
+
+  // Hard clamp
+  return Math.max(0.60, Math.min(1.30, mult));
+}
+
+/**
+ * Calculate position size for a single trade.
+ *
+ * @param {number} entryPrice
+ * @param {number} stopLoss
+ * @param {number} [riskPercent] — base risk %, default 1.5%
+ * @param {number} [totalCapital]
+ * @param {object} [opts]
+ *   - atr: 14-period ATR. If provided, applies volatility-adjusted sizing.
+ *   - confidenceScore: 0–100. Optional secondary nudge.
+ *   - volAdjusted: explicit on/off (default true if ATR provided).
+ */
+export function calculatePositionSize(entryPrice, stopLoss, riskPercent = DEFAULT_RISK_PERCENT, totalCapital = null, opts = {}) {
   const capital = totalCapital || TOTAL_CAPITAL;
-  const riskAmount = capital * riskPercent;
+  const baseRiskPercent = riskPercent || DEFAULT_RISK_PERCENT;
+
+  // Volatility-adjusted risk percent
+  const volAdjusted = opts.volAdjusted !== false && opts.atr;
+  const volMult = volAdjusted ? volAdjustedRiskMultiplier(entryPrice, opts.atr, opts.confidenceScore) : 1.0;
+  const adjustedRiskPercent = Math.min(MAX_RISK_PERCENT, baseRiskPercent * volMult);
+
+  const riskAmount = capital * adjustedRiskPercent;
   const riskPerShare = Math.abs(entryPrice - stopLoss);
 
   if (riskPerShare <= 0) return null;
@@ -41,6 +95,8 @@ export function calculatePositionSize(entryPrice, stopLoss, riskPercent = DEFAUL
     quantity,
     capitalRequired: Math.round(capitalRequired),
     percentOfCapital: Math.round((capitalRequired / capital) * 10000) / 100,
+    riskPercentApplied: Math.round(adjustedRiskPercent * 10000) / 100, // e.g. 1.65
+    volMultiplier: Math.round(volMult * 100) / 100,
   };
 }
 

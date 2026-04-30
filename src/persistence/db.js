@@ -357,6 +357,83 @@ export const tradesRepo = {
   getById(id) { return getTradeByIdStmt.get(id); },
   getOpenBySymbol(symbol, mode = 'paper') { return getTradeBySymbolOpenStmt.get(symbol, mode); },
   getRecentClosed(mode = 'paper', limit = 50) { return getClosedTradesStmt.all(mode, limit); },
+
+  /**
+   * Aggregate journal stats over closed trades (paper or live).
+   * Mirrors backtest metrics so we can compare predicted vs actual edge.
+   */
+  journalStats(mode = 'paper') {
+    const closed = db.prepare(
+      `SELECT * FROM trades WHERE status='closed' AND mode = ? ORDER BY exit_date ASC`
+    ).all(mode);
+    if (closed.length === 0) return { mode, totalTrades: 0, wins: 0, losses: 0 };
+
+    const wins   = closed.filter(t => (t.realized_pnl || 0) > 0);
+    const losses = closed.filter(t => (t.realized_pnl || 0) < 0);
+    const win_rate = closed.length > 0 ? wins.length / closed.length : 0;
+    const avgWinPct  = wins.length   ? wins.reduce((s, t) => s + (t.realized_pct || 0), 0) / wins.length : 0;
+    const avgLossPct = losses.length ? losses.reduce((s, t) => s + (t.realized_pct || 0), 0) / losses.length : 0;
+    const expectancyPct = win_rate * avgWinPct + (1 - win_rate) * avgLossPct;
+    const totalPnl    = closed.reduce((s, t) => s + (t.realized_pnl || 0), 0);
+    const grossProfit = wins.reduce((s, t) => s + (t.realized_pnl || 0), 0);
+    const grossLoss   = Math.abs(losses.reduce((s, t) => s + (t.realized_pnl || 0), 0));
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : null;
+    const avgHolding  = closed.reduce((s, t) => s + (t.holding_days || 0), 0) / closed.length;
+
+    // Equity curve trade-by-trade
+    const open = db.prepare(`SELECT * FROM trades WHERE status='open' AND mode = ?`).all(mode);
+    const startingCapital = closed[0]?.capital ? closed[0].capital : 50000;
+    let equity = startingCapital, peak = startingCapital, maxDD = 0;
+    const curve = [];
+    for (const t of closed) {
+      equity += (t.realized_pnl || 0);
+      if (equity > peak) peak = equity;
+      const dd = peak > 0 ? (peak - equity) / peak * 100 : 0;
+      if (dd > maxDD) maxDD = dd;
+      curve.push({ date: (t.exit_date || '').slice(0, 10), equity: Math.round(equity * 100) / 100 });
+    }
+
+    // By setup type
+    const bySetup = {};
+    for (const t of closed) {
+      const k = t.setup_type || 'unknown';
+      (bySetup[k] ??= { n: 0, wins: 0, totalPct: 0, totalPnl: 0 });
+      bySetup[k].n++;
+      if ((t.realized_pnl || 0) > 0) bySetup[k].wins++;
+      bySetup[k].totalPct += t.realized_pct || 0;
+      bySetup[k].totalPnl += t.realized_pnl || 0;
+    }
+    for (const k of Object.keys(bySetup)) {
+      const v = bySetup[k];
+      v.winRate    = v.n > 0 ? v.wins / v.n : 0;
+      v.expectancy = v.n > 0 ? v.totalPct / v.n : 0;
+    }
+
+    // By exit reason
+    const byExit = {};
+    for (const t of closed) byExit[t.exit_reason || 'unknown'] = (byExit[t.exit_reason || 'unknown'] || 0) + 1;
+
+    return {
+      mode,
+      totalTrades:    closed.length,
+      openTrades:     open.length,
+      wins:           wins.length,
+      losses:         losses.length,
+      winRate:        Math.round(win_rate * 10000) / 10000,
+      avgWinPct:      Math.round(avgWinPct * 100) / 100,
+      avgLossPct:     Math.round(avgLossPct * 100) / 100,
+      expectancyPct:  Math.round(expectancyPct * 100) / 100,
+      profitFactor:   profitFactor != null ? Math.round(profitFactor * 100) / 100 : null,
+      totalPnl:       Math.round(totalPnl * 100) / 100,
+      avgHoldingDays: Math.round(avgHolding * 10) / 10,
+      maxDrawdownPct: Math.round(maxDD * 100) / 100,
+      finalEquity:    Math.round(equity * 100) / 100,
+      startingCapital,
+      bySetup,
+      byExit,
+      equityCurve:    curve.slice(-100),
+    };
+  },
 };
 
 export const positionsRepo = {

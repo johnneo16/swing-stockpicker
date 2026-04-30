@@ -533,11 +533,101 @@ app.get('/api/events/upcoming', (req, res) => {
 });
 
 /**
+ * GET /api/journal/stats — aggregate stats over closed paper/live trades
+ *   ?mode=paper|live
+ */
+app.get('/api/journal/stats', (req, res) => {
+  const mode = req.query.mode === 'live' ? 'live' : 'paper';
+  res.json(tradesRepo.journalStats(mode));
+});
+
+/**
  * GET /api/backtests — list recent backtest runs
  */
 app.get('/api/backtests', (req, res) => {
   const limit = Math.min(50, parseInt(req.query.limit || '20', 10));
   res.json({ runs: backtestRepo.list(limit) });
+});
+
+// Track in-progress backtests (only one at a time to avoid DB lock)
+let _backtestInProgress = false;
+
+/**
+ * POST /api/backtests/run — trigger a backtest from the UI
+ *   body: { startDate, endDate, threshold, universe, capital, volAdjustedSizing }
+ */
+app.post('/api/backtests/run', async (req, res) => {
+  if (_backtestInProgress) {
+    return res.status(409).json({ error: 'A backtest is already running. Try again in a few minutes.' });
+  }
+  _backtestInProgress = true;
+  try {
+    const body = req.body || {};
+    const { runBacktest } = await import('./src/backtest/engine.js');
+    const STOCK_UNIVERSE          = (await import('./src/engine/stockUniverse.js')).default;
+    const STOCK_UNIVERSE_EXTENDED = (await import('./src/engine/stockUniverseExtended.js')).default;
+    const universe = body.universe === 'extended' ? STOCK_UNIVERSE_EXTENDED : STOCK_UNIVERSE;
+
+    const config = {
+      startDate:        body.startDate || '2023-01-01',
+      endDate:          body.endDate   || '2024-12-31',
+      capital:          parseInt(body.capital || '50000', 10),
+      scoreThreshold:   parseInt(body.threshold || '50', 10),
+      includeLowConf:   body.includeLowConf === true,
+      minRR:            parseFloat(body.minRR || '1.5'),
+      maxConcurrent:    parseInt(body.maxConcurrent || '5', 10),
+      maxPerSector:     parseInt(body.maxPerSector || '3', 10),
+      maxHoldingDays:   parseInt(body.maxHoldingDays || '25', 10),
+      volAdjustedSizing: body.volAdjustedSizing !== false,
+      baseRiskPercent:  parseFloat(body.baseRiskPercent || '0.015'),
+    };
+
+    const runId = backtestRepo.start({
+      startDate: config.startDate, endDate: config.endDate, capital: config.capital,
+      universeSize: universe.length, config,
+      notes: `UI-triggered, universe=${body.universe || 'default'}, vol=${config.volAdjustedSizing ? 'on' : 'off'}`,
+    });
+
+    // Respond immediately with runId; backtest runs in background
+    res.status(202).json({ ok: true, runId, status: 'queued', message: 'Backtest started — poll /api/backtests/' + runId + ' for results.' });
+
+    // Run + persist asynchronously (don't await — we already responded)
+    (async () => {
+      try {
+        const result = await runBacktest(universe, config);
+        backtestRepo.saveTrades(runId, result.trades);
+        backtestRepo.finish(runId, {
+          total_trades:    result.metrics.totalTrades,
+          wins:            result.metrics.wins,
+          losses:          result.metrics.losses,
+          win_rate:        result.metrics.winRate,
+          avg_win_pct:     result.metrics.avgWinPct,
+          avg_loss_pct:    result.metrics.avgLossPct,
+          expectancy_pct:  result.metrics.expectancyPct,
+          total_return:    result.metrics.totalReturn,
+          total_return_pct: result.metrics.totalReturnPct,
+          max_drawdown_pct: result.metrics.maxDrawdownPct,
+          sharpe_ratio:    result.metrics.sharpeRatio,
+          profit_factor:   result.metrics.profitFactor,
+        });
+        console.log(`✓ Backtest #${runId} complete: ${result.metrics.totalTrades} trades, ${(result.metrics.winRate * 100).toFixed(1)}% win, +${result.metrics.totalReturnPct}% return`);
+      } catch (e) {
+        console.error(`✗ Backtest #${runId} failed:`, e.message);
+      } finally {
+        _backtestInProgress = false;
+      }
+    })();
+  } catch (e) {
+    _backtestInProgress = false;
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/backtests/status — is a backtest currently running?
+ */
+app.get('/api/backtests/status', (req, res) => {
+  res.json({ inProgress: _backtestInProgress });
 });
 
 /**

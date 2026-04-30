@@ -19,6 +19,7 @@ import { loadHistoricalBulk } from './historicalLoader.js';
 import { simulateTrade }     from './simulator.js';
 import { computeMetrics }    from './metrics.js';
 import { scoreStock }         from '../engine/scoringEngine.js';
+import { volAdjustedRiskMultiplier } from '../engine/riskEngine.js';
 
 const DEFAULT_CONFIG = {
   startDate:        '2023-01-01',
@@ -35,6 +36,10 @@ const DEFAULT_CONFIG = {
   brokerageBps:     10,
   // Force-include even low-confidence picks? (mirror Pass 2 of live engine)
   includeLowConf:   false,
+  // Volatility-adjusted position sizing — multiplies the 1.5% baseline
+  // by 0.6–1.3 based on ATR/price ratio. Set false to use flat sizing.
+  volAdjustedSizing: true,
+  baseRiskPercent:   0.015,
 };
 
 /**
@@ -165,9 +170,13 @@ export async function runBacktest(universe, config = {}, progressFn = null) {
       if (stop >= entryPrice || target <= entryPrice) continue;
 
       const riskPerShare = entryPrice - stop;
-      const riskAmount   = C.capital * 0.015;     // 1.5% per trade
-      const maxQty       = Math.floor((C.capital * 0.20) / entryPrice);
-      const qty          = Math.min(Math.floor(riskAmount / riskPerShare), maxQty);
+      // Volatility-adjusted risk %: scale baseline by ATR/price + confidence
+      const volMult = C.volAdjustedSizing
+        ? volAdjustedRiskMultiplier(entryPrice, scored.indicators?.atr, scored.confidenceScore)
+        : 1.0;
+      const riskAmount = C.capital * Math.min(0.02, C.baseRiskPercent * volMult);
+      const maxQty     = Math.floor((C.capital * 0.20) / entryPrice);
+      const qty        = Math.min(Math.floor(riskAmount / riskPerShare), maxQty);
       if (qty <= 0) continue;
 
       const trade = {

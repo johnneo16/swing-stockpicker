@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { TestTube2, TrendingUp, TrendingDown, Award, Clock, Target as TargetIcon, AlertTriangle } from 'lucide-react';
+import { TestTube2, TrendingUp, TrendingDown, Award, Clock, Target as TargetIcon, AlertTriangle, PlayCircle, Settings } from 'lucide-react';
 
 /**
  * Backtests tab — list runs, drill into one to see metrics + trade log.
@@ -10,6 +10,8 @@ export default function BacktestsTab() {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showRunner, setShowRunner] = useState(false);
+  const [runnerStatus, setRunnerStatus] = useState(null);
 
   const loadList = useCallback(async () => {
     try {
@@ -24,6 +26,24 @@ export default function BacktestsTab() {
 
   useEffect(() => { loadList(); }, [loadList]);
 
+  // Poll for in-progress backtest status when expecting one
+  useEffect(() => {
+    if (!runnerStatus || runnerStatus.state !== 'running') return;
+    const interval = setInterval(async () => {
+      try {
+        const s = await fetch('/api/backtests/status').then(r => r.json());
+        if (!s.inProgress) {
+          // Backtest finished — refresh list
+          setRunnerStatus({ state: 'done', runId: runnerStatus.runId });
+          await loadList();
+          if (runnerStatus.runId) setSelectedId(runnerStatus.runId);
+          setTimeout(() => setRunnerStatus(null), 4000);
+        }
+      } catch (_) {}
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [runnerStatus, loadList]);
+
   useEffect(() => {
     if (!selectedId) return;
     fetch(`/api/backtests/${selectedId}`)
@@ -36,16 +56,68 @@ export default function BacktestsTab() {
     return <div>{[1, 2].map(i => <div key={i} className="loading-skeleton skeleton-card" />)}</div>;
   }
 
-  if (runs.length === 0) {
-    return (
-      <div className="empty-state">
-        <div className="empty-icon"><TestTube2 size={48} className="text-muted" strokeWidth={1}/></div>
-        <div className="empty-title">No backtest runs yet</div>
-        <div className="empty-text">Run from the CLI: <code>node scripts/runBacktest.js --universe extended --start 2022-01-01 --end 2024-12-31 --threshold 60</code></div>
+  return (
+    <>
+      {/* Runner controls */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-header">
+          <div className="card-title"><PlayCircle size={16} className="inline-icon" /> Run New Backtest</div>
+          <button
+            className="btn-secondary"
+            onClick={() => setShowRunner(!showRunner)}
+            style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+          >
+            <Settings size={12} /> {showRunner ? 'Hide' : 'Configure'}
+          </button>
+        </div>
+        {runnerStatus && (
+          <div style={{
+            padding: '8px 12px', borderRadius: 6, marginBottom: showRunner ? 12 : 0,
+            background: runnerStatus.state === 'running' ? 'rgba(56,189,248,0.10)' : 'rgba(34,197,94,0.10)',
+            color: runnerStatus.state === 'running' ? '#7dd3fc' : '#86efac',
+            fontSize: '0.85rem',
+          }}>
+            {runnerStatus.state === 'running'
+              ? <><span className="spinner" /> Backtest #{runnerStatus.runId} in progress — usually takes 3–5 minutes…</>
+              : <>✓ Backtest #{runnerStatus.runId} complete</>}
+          </div>
+        )}
+        {showRunner && <BacktestRunner onSubmit={async (cfg) => {
+          try {
+            const r = await fetch('/api/backtests/run', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(cfg),
+            }).then(r => r.json());
+            if (r.runId) {
+              setRunnerStatus({ state: 'running', runId: r.runId });
+              setShowRunner(false);
+              await loadList();
+              setSelectedId(r.runId);
+            } else if (r.error) {
+              setError(r.error);
+            }
+          } catch (e) { setError(e.message); }
+        }} />}
       </div>
-    );
-  }
 
+      {runs.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-icon"><TestTube2 size={48} className="text-muted" strokeWidth={1}/></div>
+          <div className="empty-title">No backtest runs yet</div>
+          <div className="empty-text">Click <strong>Configure</strong> above to run your first backtest, or use the CLI: <code>node scripts/runBacktest.js</code></div>
+        </div>
+      ) : (
+        <BacktestsView
+          runs={runs} selectedId={selectedId} setSelectedId={(id) => { setSelectedId(id); setDetail(null); }}
+          detail={detail} error={error}
+        />
+      )}
+    </>
+  );
+}
+
+function BacktestsView({ runs, selectedId, setSelectedId, detail, error }) {
   return (
     <div className="backtests-tab" style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 16 }}>
       {/* Run list */}
@@ -267,6 +339,88 @@ function Metric({ label, value, sub, tone }) {
         {value ?? '—'}
       </div>
       {sub && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function BacktestRunner({ onSubmit }) {
+  const [universe,  setUniverse]  = useState('extended');
+  const [startDate, setStartDate] = useState('2022-01-01');
+  const [endDate,   setEndDate]   = useState('2024-12-31');
+  const [threshold, setThreshold] = useState(50);
+  const [capital,   setCapital]   = useState(50000);
+  const [volSizing, setVolSizing] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    await onSubmit({
+      universe,
+      startDate, endDate,
+      threshold: parseInt(threshold, 10),
+      capital: parseInt(capital, 10),
+      volAdjustedSizing: volSizing,
+    });
+    setSubmitting(false);
+  };
+
+  const Field = ({ label, children }) => (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6 }}>{label}</span>
+      {children}
+    </label>
+  );
+
+  const inputStyle = {
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 6,
+    padding: '6px 10px',
+    color: 'var(--text-primary)',
+    fontSize: '0.85rem',
+    fontFamily: 'var(--font-mono)',
+  };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, alignItems: 'end' }}>
+      <Field label="Universe">
+        <select value={universe} onChange={e => setUniverse(e.target.value)} style={inputStyle}>
+          <option value="default">Default (50)</option>
+          <option value="extended">Extended (198)</option>
+        </select>
+      </Field>
+      <Field label="Start Date">
+        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={inputStyle} />
+      </Field>
+      <Field label="End Date">
+        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={inputStyle} />
+      </Field>
+      <Field label="Score Threshold">
+        <input type="number" min="20" max="90" value={threshold} onChange={e => setThreshold(e.target.value)} style={inputStyle} />
+      </Field>
+      <Field label="Capital (₹)">
+        <input type="number" min="10000" step="10000" value={capital} onChange={e => setCapital(e.target.value)} style={inputStyle} />
+      </Field>
+      <Field label="Vol-Adj Sizing">
+        <select value={volSizing ? 'on' : 'off'} onChange={e => setVolSizing(e.target.value === 'on')} style={inputStyle}>
+          <option value="on">On (recommended)</option>
+          <option value="off">Off (flat 1.5%)</option>
+        </select>
+      </Field>
+      <button
+        className="btn-secondary"
+        onClick={handleSubmit}
+        disabled={submitting}
+        style={{
+          background: 'var(--accent-cyan)',
+          color: '#000',
+          fontWeight: 600,
+          padding: '7px 16px',
+          alignSelf: 'end',
+        }}
+      >
+        {submitting ? <span className="spinner" /> : <PlayCircle size={14} />} Run
+      </button>
     </div>
   );
 }

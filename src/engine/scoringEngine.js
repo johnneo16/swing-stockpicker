@@ -131,7 +131,12 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
     + patternScore + structureScore;
 
   // === POSITION SIZING ===
-  const position = calculatePositionSize(stockData.currentPrice, levels.stopLoss, undefined, totalCapital);
+  // Volatility-adjusted sizing — pass ATR + confidence so high-vol names
+  // get smaller positions and high-conviction trades get a small bump.
+  const position = calculatePositionSize(
+    stockData.currentPrice, levels.stopLoss, undefined, totalCapital,
+    { atr: indicators.atr, confidenceScore: totalScore },
+  );
   if (!position || position.quantity <= 0) return null;
 
   // === DETERMINE RISK LEVEL ===

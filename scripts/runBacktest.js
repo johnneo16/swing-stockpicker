@@ -42,6 +42,8 @@ async function main() {
     maxPerSector:   parseInt(args['max-sector'] || '3', 10),
     maxHoldingDays: parseInt(args['max-days'] || '25', 10),
     rebalanceEvery: parseInt(args.rebalance || '1', 10),
+    volAdjustedSizing: args['flat-sizing'] !== 'true' && args['flat-sizing'] !== true,
+    baseRiskPercent: parseFloat(args['risk-pct'] || '0.015'),
   };
 
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

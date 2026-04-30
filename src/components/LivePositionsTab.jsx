@@ -15,6 +15,7 @@ export default function LivePositionsTab({ capital = 50000 }) {
   const [positions, setPositions] = useState([]);
   const [portfolio, setPortfolio] = useState(null);
   const [history, setHistory]     = useState([]);
+  const [stats, setStats]         = useState(null);
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [exiting, setExiting]     = useState(false);
@@ -24,14 +25,16 @@ export default function LivePositionsTab({ capital = 50000 }) {
   const loadAll = useCallback(async () => {
     try {
       setError(null);
-      const [posRes, portRes, histRes] = await Promise.all([
+      const [posRes, portRes, histRes, statsRes] = await Promise.all([
         fetch(API('/api/positions?mode=paper')).then(r => r.json()),
         fetch(API(`/api/portfolio/live?mode=paper&capital=${capital}`)).then(r => r.json()),
         fetch(API('/api/trades/history?mode=paper&limit=20')).then(r => r.json()),
+        fetch(API('/api/journal/stats?mode=paper')).then(r => r.json()),
       ]);
       setPositions(posRes.positions || []);
       setPortfolio(portRes);
       setHistory(histRes.trades || []);
+      setStats(statsRes);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -127,6 +130,26 @@ export default function LivePositionsTab({ capital = 50000 }) {
               ⚠ Sector overconcentration: {portfolio.overconcentratedSector} ({portfolio.maxSectorCount} positions)
             </div>
           )}
+        </div>
+      )}
+
+      {/* Realized P&L stats — only shown after >=1 closed trade */}
+      {stats && stats.totalTrades > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header">
+            <div className="card-title"><Activity size={16} className="inline-icon" /> Journal — Realized Performance</div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{stats.totalTrades} closed trade{stats.totalTrades === 1 ? '' : 's'} · {stats.openTrades} open</div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 14 }}>
+            <Stat label="Win Rate" value={`${Math.round(stats.winRate * 100)}%`} sub={`${stats.wins}W / ${stats.losses}L`} tone={stats.winRate >= 0.5 ? 'profit' : ''} />
+            <Stat label="Avg Win" value={`+${stats.avgWinPct}%`} tone="profit" />
+            <Stat label="Avg Loss" value={`${stats.avgLossPct}%`} tone="loss" />
+            <Stat label="Expectancy" value={`${stats.expectancyPct >= 0 ? '+' : ''}${stats.expectancyPct}%`} tone={stats.expectancyPct >= 0 ? 'profit' : 'loss'} sub="per trade" />
+            <Stat label="Profit Factor" value={stats.profitFactor ?? '—'} tone={(stats.profitFactor || 0) >= 1.5 ? 'profit' : ''} />
+            <Stat label="Realized P&L" value={`₹${(stats.totalPnl || 0).toLocaleString('en-IN')}`} tone={stats.totalPnl >= 0 ? 'profit' : 'loss'} />
+            <Stat label="Max Drawdown" value={`-${stats.maxDrawdownPct}%`} tone="loss" />
+            <Stat label="Avg Hold" value={`${stats.avgHoldingDays}d`} />
+          </div>
         </div>
       )}
 
