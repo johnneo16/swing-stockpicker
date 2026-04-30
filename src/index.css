@@ -1266,6 +1266,93 @@ body::before {
   letter-spacing: 0.02em;
 }
 
+/* Exit reason badges (used in Live + Backtests tabs) */
+.exit-reason {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(148, 163, 184, 0.18);
+  color: #cbd5e1;
+}
+.exit-reason.exit-target,
+.exit-reason.exit-target_gap,
+.exit-reason.exit-target_hit { background: rgba(34, 197, 94, 0.18); color: #86efac; }
+.exit-reason.exit-stop,
+.exit-reason.exit-stop_gap,
+.exit-reason.exit-stop_hit { background: rgba(239, 68, 68, 0.18); color: #fca5a5; }
+.exit-reason.exit-time,
+.exit-reason.exit-time_stop { background: rgba(245, 158, 11, 0.18); color: #fcd34d; }
+.exit-reason.exit-panic_loss { background: rgba(239, 68, 68, 0.30); color: #fff; }
+.exit-reason.exit-trail { background: rgba(56, 189, 248, 0.18); color: #7dd3fc; }
+.exit-reason.exit-partial_50pct { background: rgba(34, 197, 94, 0.12); color: #86efac; }
+
+/* Backtests tab — narrower grid on small screens */
+@media (max-width: 900px) {
+  .backtests-tab { grid-template-columns: 1fr !important; }
+}
+
+/* Track-as-paper button on TradeCard execution bar */
+.btn-open-paper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--accent-cyan);
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.08);
+  color: var(--accent-cyan);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.btn-open-paper:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.18);
+  transform: translateY(-1px);
+}
+.btn-open-paper:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-open-paper.opened {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: var(--profit);
+  color: var(--profit);
+}
+.btn-open-paper.error {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: var(--loss);
+  color: var(--loss);
+}
+
+/* Cleaner secondary button used on Live tab */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--accent-cyan);
+  background: rgba(56, 189, 248, 0.05);
+}
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* TradingView verify link */
 .tv-link-btn {
   display: inline-flex;

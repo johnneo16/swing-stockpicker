@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useCallback, useRef, startTransition } from 'react';
-import { 
-  Activity, BarChart3, Package, RefreshCw, Pause, Search, AlertCircle, 
-  Briefcase, CheckCircle2, XCircle, TrendingUp, TrendingDown, Target, 
-  ArrowUpRight, ArrowDownRight, Sun, Moon, Info, ShieldAlert
+import {
+  Activity, BarChart3, Package, RefreshCw, Pause, Search, AlertCircle,
+  Briefcase, CheckCircle2, XCircle, TrendingUp, TrendingDown, Target,
+  ArrowUpRight, ArrowDownRight, Sun, Moon, Info, ShieldAlert, TestTube2
 } from 'lucide-react';
 import TradeCard from './components/TradeCard.jsx';
 import PortfolioSummary from './components/PortfolioSummary.jsx';
 import MarketOverview from './components/MarketOverview.jsx';
 import AlertPanel, { generateAlerts } from './components/AlertPanel.jsx';
+import RegimePanel from './components/RegimePanel.jsx';
+
+const LivePositionsTab = React.lazy(() => import('./components/LivePositionsTab.jsx'));
+const BacktestsTab     = React.lazy(() => import('./components/BacktestsTab.jsx'));
 
 const DEFAULT_CAPITAL = 50000;
 
@@ -372,15 +376,17 @@ export default function App() {
 
       {/* ---- Tabs ---- */}
       <div className="tabs" id="main-tabs">
-        {['dashboard', 'trades', 'portfolio'].map(tab => (
+        {['dashboard', 'trades', 'portfolio', 'live', 'backtests'].map(tab => (
           <button
             key={tab}
             className={`tab ${activeTab === tab ? 'active' : ''}`}
             onClick={() => handleTabChange(tab)}
           >
-            {tab === 'dashboard' ? <><Activity size={14} className="tab-icon"/> Dashboard</>
-              : tab === 'trades' ? <><BarChart3 size={14} className="tab-icon"/> {scanMode === 'etf' ? 'ETFs' : 'Trade Setups'}{activeTrades.length > 0 ? ` (${activeTrades.length})` : ''}{highConvictionOnly ? <span style={{ marginLeft: 4, fontSize: '0.6rem', color: 'var(--accent-cyan)', fontWeight: 700 }}>★</span> : null}</>
-              : <><Briefcase size={14} className="tab-icon"/> Portfolio</>}
+            {tab === 'dashboard'  ? <><Activity size={14} className="tab-icon"/> Dashboard</>
+              : tab === 'trades'   ? <><BarChart3 size={14} className="tab-icon"/> {scanMode === 'etf' ? 'ETFs' : 'Trade Setups'}{activeTrades.length > 0 ? ` (${activeTrades.length})` : ''}{highConvictionOnly ? <span style={{ marginLeft: 4, fontSize: '0.6rem', color: 'var(--accent-cyan)', fontWeight: 700 }}>★</span> : null}</>
+              : tab === 'portfolio'? <><Briefcase size={14} className="tab-icon"/> Portfolio</>
+              : tab === 'live'     ? <><Target size={14} className="tab-icon"/> Live</>
+              :                       <><TestTube2 size={14} className="tab-icon"/> Backtests</>}
           </button>
         ))}
       </div>
@@ -425,6 +431,7 @@ export default function App() {
             ) : (
               <>
                 <PortfolioSummary portfolio={activePortfolio} capital={capital} onCapitalChange={handleCapitalChange} />
+                <RegimePanel />
                 <MarketOverview marketData={marketData} />
                 <AlertPanel alerts={alerts} />
               </>
@@ -507,6 +514,20 @@ export default function App() {
             <PortfolioSummary portfolio={activePortfolio} capital={capital} onCapitalChange={handleCapitalChange} />
           </div>
         </div>
+      )}
+
+      {/* ============ LIVE (Paper Trading) TAB ============ */}
+      {activeTab === 'live' && (
+        <React.Suspense fallback={<div className="loading-skeleton skeleton-card" />}>
+          <LivePositionsTab capital={capital} />
+        </React.Suspense>
+      )}
+
+      {/* ============ BACKTESTS TAB ============ */}
+      {activeTab === 'backtests' && (
+        <React.Suspense fallback={<div className="loading-skeleton skeleton-card" />}>
+          <BacktestsTab />
+        </React.Suspense>
       )}
 
       {/* Mobile sticky bottom bar */}

@@ -1,8 +1,8 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useState } from 'react';
 import {
   BarChart2, TrendingUp, Newspaper, CheckCircle2,
   AlertTriangle, Target, AlertCircle, Star, ArrowUpRight,
-  ArrowRight, ArrowDownRight, XCircle, ExternalLink
+  ArrowRight, ArrowDownRight, XCircle, ExternalLink, Briefcase, Check
 } from 'lucide-react';
 
 const MiniChart = React.lazy(() => import('./MiniChart'));
@@ -12,6 +12,26 @@ const TradeCard = ({ trade }) => {
   const fund = trade.fundamentals;
   // Determine if we have any valid fundamental data at all.
   const hasFundamentals = fund && (fund.peRatio || fund.roe || fund.marketCap);
+  const [openState, setOpenState] = useState('idle'); // idle | opening | opened | error
+
+  const handleOpenPosition = async () => {
+    if (openState !== 'idle') return;
+    setOpenState('opening');
+    try {
+      const res = await fetch('/api/positions/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trade, mode: 'paper' }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setOpenState('opened');
+      setTimeout(() => setOpenState('idle'), 4000);
+    } catch (e) {
+      console.error('Open position failed:', e);
+      setOpenState('error');
+      setTimeout(() => setOpenState('idle'), 4000);
+    }
+  };
 
   return (
     <div className={`trade-card${trade.lowConfidence ? ' trade-card-low-conf' : ''}${trade.eventBlackout ? ' trade-card-blackout' : ''}`} id={`trade-${trade.symbol}`}>
@@ -265,13 +285,24 @@ const TradeCard = ({ trade }) => {
           </div>
         </div>
 
-        {/* Execution Strategy */}
+        {/* Execution Strategy + paper-open action */}
         <div className="execution-bar">
           <span className="execution-icon"><Target size={20} /></span>
-          <div>
+          <div style={{ flex: 1 }}>
             <div className="execution-label">Execution Strategy</div>
             <div className="execution-text">{trade.executionStrategy}</div>
           </div>
+          <button
+            className={`btn-open-paper ${openState}`}
+            onClick={handleOpenPosition}
+            disabled={openState !== 'idle' || trade.eventBlackout}
+            title={trade.eventBlackout ? 'Earnings blackout — cannot open' : 'Track this as a paper position'}
+          >
+            {openState === 'opened'  ? <><Check size={14}/> Tracking</>
+             : openState === 'opening' ? <><span className="spinner"/> ...</>
+             : openState === 'error' ? <><XCircle size={14}/> Error</>
+             :                          <><Briefcase size={14}/> Track</>}
+          </button>
         </div>
 
         {/* Score Breakdown */}
