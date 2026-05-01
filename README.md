@@ -2,12 +2,14 @@
 
 <div align="center">
 
-**Professional-grade AI swing trading system for the Indian stock market**
+**Institutional-grade AI swing trading system for the Indian stock market**
 
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=white)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Angel One](https://img.shields.io/badge/Angel_One-SmartAPI-FF9900?style=for-the-badge&logoColor=white)](https://smartapi.angelbroking.com/)
+
+[Overview](#-overview) • [Architecture](#-architecture) • [AI Scoring](#-ai-scoring-engine) • [Risk Engine](#-risk--money-management) • [Hosting](#-hosting--deployment)
 
 </div>
 
@@ -23,97 +25,123 @@
 
 ---
 
-## ✨ What is SwingPro?
+## ✨ Overview
 
-SwingPro is a **full-stack web platform** that acts as your personal AI trading analyst. Built to scan **100+ liquid NSE Stocks and Top Index ETFs** using real-time data from **Angel One SmartAPI** and high-integrity fundamentals from **Screener.in**, it runs multi-factor technical analysis, applies **hedge-fund-grade risk management**, and presents actionable swing trade setups (3–15 day horizon) through a professional Neon-Dark terminal dashboard.
+SwingPro is a **professional-grade financial analytical platform** designed to identify high-probability swing trading setups (3–15 day horizon) in the NSE market. 
 
-> **Think of it as a disciplined trading assistant that manages your portfolio with institutional risk rules — prioritize capital preservation while capturing high-probability momentum.**
-
----
-
-## 🎯 Key Features
-
-### 📡 High-Integrity Data Pipeline
-- **SmartAPI (Angel One):** Fetching live tick data and 90-day OHLCV candles to bypass 15-minute exchange delays.
-- **Screener.in Scraping:** Custom robust scraper using `Axios` and `Cheerio` to ingest real-time PE, ROE, ROCE, and Dividend Yield metrics, bypassing common Yahoo Finance rate limits.
-- **Auto-Refresh Scheduler:** Background worker fetches new data every 30 minutes during NSE hours (9:15 AM - 3:30 PM).
-
-### 📊 Multi-Factor Analysis Engine (Alpha Engine)
-- **Technical Indicators**: RSI (14), MACD (12,26,9), EMA 20/50/200, ATR-based volatility, and Volume-Price analysis.
-- **Trend Alignment**: Confirms entries only when price is sustained above key moving averages with accelerating momentum.
-- **Asset Classes**: Separate dedicated pipelines for **Equity Stocks** and **Exchange Traded Funds (ETFs)**.
-
-### 💰 Professional Risk Management
-| Rule | Value | Description |
-|------|-------|-------------|
-| Max risk per trade | 2.0% | Calculated as percentage of total capital |
-| Position sizing | Capped at 20% | Never allocate more than 20% capital to a single trade |
-| Max concurrent trades| 5 | Ensures optimal diversification vs focus |
-| Cash reserve | 15% | Always maintains liquidity for strategic adjustments |
-| Sector limit | 3 (Stocks) / 5 (ETFs) | Prevents over-concentration in specific industries |
-| Min risk-reward | 1:1.5+ | Prefers setups with asymmetric profit potential |
-
-### 🧠 AI Confidence Scoring (0–100)
-A weighted scoring system that evaluates trade quality:
-- **Trend Alignment (20%)**: MA position & slope.
-- **Momentum (20%)**: RSI/MACD strength.
-- **Volume Profile (15%)**: Relative volume vs 20-day average.
-- **Price Action (15%)**: Breakouts & Support/Resistance confirmation.
-- **Risk-Reward (15%)**: Mathematical quality of the trade entry/exit.
-- **Fundamental Strength (15%)**: ROE/PE/ROCE scores from Screener.in.
+Unlike retail tools, SwingPro focuses on **Objective Rule-Based Trading**. It eliminates emotional bias by combining:
+1.  **Multi-timeframe technical signals** from Angel One SmartAPI.
+2.  **High-integrity fundamental metrics** scraped directly from Screener.in.
+3.  **Hedge-fund-grade risk management** (Kelly-inspired position sizing).
+4.  **AI-driven confidence scoring** to rank and prioritize trades.
 
 ---
 
 ## 🏗️ System Architecture
 
-SwingPro follows a decoupled Monolithic architecture optimized for low-latency financial analysis.
+SwingPro uses a decoupled monolithic structure designed for low-latency analysis and robust data ingestion.
 
-### 🧬 Tech Stack
-- **Frontend**: React 18, Vite 5, Lucide React (Icons), Vanilla CSS (Custom Glassmorphism + Dark Grid).
-- **Backend**: Node.js 18+, Express.js, `totp-generator` (2FA automation).
-- **Data Ingestion**: `axios`, `cheerio` (Web Scraping), `smartapi-javascript`.
-- **Infrastructure**: Render.com (Unified Deployment), `dotenv` (Security).
+```mermaid
+graph TD
+    subgraph "External Data Layers"
+        A1[Angel One SmartAPI] -- "Tick-by-Tick / OHLC 90d" --> B
+        S1[Screener.in Scraper] -- "ROCE, ROE, PE, DY" --> B
+    end
 
----
+    subgraph "SwingPro Alpha Backend (Node.js)"
+        B[Data Fetcher Service] --> C{Engine Room}
+        C --> D[Technical Analysis Engine]
+        C --> E[Fundamental Alpha Engine]
+        D & E --> F[AI Scoring Engine]
+        F --> G[Risk & Position Manager]
+    end
 
-## 🔮 Roadmap
-1. **[DONE] Screener.in Integration**: Move away from unreliable public fundamental APIs.
-2. **[DONE] Dynamic Capital**: Support for adjusting portfolio size directly from the dashboard.
-3. **[DONE] High-Conviction Filter**: Toggle to see only picks with scores ≥ 60.
-4. **Real-time WebSockets**: Tick-by-tick updates instead of polling.
-5. **Backtesting Engine**: Verify strategies against 5-year historical OHLCV data.
-
----
-
-## 🚀 Quick Start (Local Run)
-
-### 1. Generate Angel One Credentials
-1. Create a trading app at [SmartAPI Angel One](https://smartapi.angelbroking.com/).
-2. Enable [TOTP](https://smartapi.angelbroking.com/enable-totp) and save your 16-character secret.
-
-### 2. Setup Project
-```bash
-git clone https://github.com/johnneo16/swing-stockpicker.git
-npm install
-cp .env.example .env
+    subgraph "Institutional UI (React)"
+        G -- "JSON API / Websockets" --> H[Live Dashboard]
+        H --> I[Nifty Sentiment Hub]
+        H --> J[Trade Setup Cards]
+        H --> K[Portfolio Analytics]
+    end
 ```
-Fill `.env` with your Keys, Client ID, PIN, and TOTP Secret.
 
-### 3. Run Application
+---
+
+## 🧠 AI Scoring Engine
+
+The heart of SwingPro is its **8-Factor Scoring System (0–100)**, which weights technical momentum against fundamental health and market context.
+
+| Factor | Weight | Key Indicators Checked |
+| :--- | :--- | :--- |
+| **Trend Alignment** | 15% | EMA 20/50/200 Slope & Stacking |
+| **Momentum** | 18% | RSI (14) Mean Reversion & MACD Crossovers |
+| **Volume Profile** | 12% | Relative Volume (RVOL) vs 20-day Average |
+| **Price Action** | 13% | Bollinger Band Squeezes & Horizontal Breakouts |
+| **Risk-Reward** | 12% | Distance to Support vs Upside Target (Min 1:1.5) |
+| **Psychology** | 10% | RSI Overextension & Day Change Dampening |
+| **Fundamentals** | 10% | ROCE, Debt-to-Equity, and Revenue Growth |
+| **Market Context**| 10% | Nifty 50 Trend & Institutional Hand-holding |
+
+---
+
+## 💰 Risk & Money Management
+
+Capital preservation is the #1 priority. The engine enforces strict rules to prevent "blowing up" the account.
+
+- **Capital Allocation**: Managed portfolio of ₹50,000 (standard local baseline).
+- **Max Risk Per Trade**: Capped at **2.0%** of total capital.
+- **Position Sizing**: Automatically calculated based on the distance between Entry and Stop Loss (ATR-adjusted).
+- **Concentration Limit**: Max **20%** capital per trade and max **3 positions** per sector.
+- **Dynamic Liquidity**: Maintains a **15% cash reserve** for emergency adjustments.
+
+---
+
+## 🚀 Hosting & Deployment
+
+SwingPro is optimized for the following free-tier stack:
+
+- **Frontend**: [Vercel](https://vercel.com) (Vite/React optimized).
+- **Backend API**: [Render](https://render.com) (Free Tier Web Services).
+- **Automation**: `totp-generator` handles Angel One 2FA automation during server-side login.
+- **Deployment Strategy**: 
+    - The backend uses a `render.yaml` configuration for zero-downtime deployment.
+    - Frontend is deployed via GitHub CI/CD using the root `vercel.json`.
+
+---
+
+## 🛠️ Development Setup
+
+### 1. Environment Configuration
+Create a `.env` file in the root directory:
+```env
+# Angel One SmartAPI
+API_KEY=your_key
+CLIENT_ID=your_id
+PIN=your_pin
+TOTP_SECRET=your_16_char_secret
+
+# Server Config
+PORT=3001
+NODE_ENV=development
+```
+
+### 2. Running Locally
 ```bash
-# Terminal 1 — Backend
+# Install dependencies
+npm install
+
+# Start Alpha Backend
 npm run server
 
-# Terminal 2 — Frontend
+# Start UI Dashboard
 npm run dev
 ```
 
 ---
 
 ## ⚠️ Disclaimer
-This software is for **educational purposes only**. Trading stocks involves significant risk. Always consult a certified financial advisor before making investment decisions.
+SwingPro is an **educational tool**. It does not provide financial advice. Trading in the Indian stock market involves significant risk. Always perform your own due diligence.
 
 ---
 
 ## 📄 License
-MIT License.
+MIT License - Copyright (c) 2024 Arindam Chowdhury.
