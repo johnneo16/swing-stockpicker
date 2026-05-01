@@ -20,6 +20,8 @@ import {
   refreshEarningsCalendar, isEarningsBlackout, listUpcomingEvents,
 } from './src/intelligence/earningsFetcher.js';
 import { refreshRegime, getRegime, regimeBias } from './src/intelligence/regimeDetector.js';
+import { orchestrator } from './src/scheduler/orchestrator.js';
+import { picksRepo, schedulerRepo } from './src/persistence/db.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -220,36 +222,7 @@ async function runScan(force = false, capital = null) {
   };
 }
 
-// ============================================================
-// Auto-Refresh Scheduler
-// ============================================================
-
-function startScheduler() {
-  console.log('⏰ Auto-refresh scheduler started (every 30 min during NSE hours)');
-
-  const check = async () => {
-    scheduler.nextScan = getNextScanTime().toISOString();
-
-    if (isNSEMarketHours()) {
-      console.log(`\n⏰ [SCHEDULER] Market is open — running auto-scan...`);
-      try {
-        await runScan(true);
-        console.log(`⏰ [SCHEDULER] Auto-scan complete. Next: ${scheduler.nextScan}`);
-      } catch (err) {
-        console.error('⏰ [SCHEDULER] Auto-scan failed:', err.message);
-      }
-    } else {
-      const nextTime = getNextScanTime();
-      console.log(`⏰ [SCHEDULER] Market closed. Next scan: ${nextTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
-    }
-  };
-
-  // Run check every 30 minutes
-  scheduler.timerId = setInterval(check, scheduler.intervalMs);
-
-  // Also run initial check after 5 seconds
-  setTimeout(check, 5000);
-}
+// (Auto-refresh scheduler — now handled by src/scheduler/orchestrator.js)
 
 // ============================================================
 // API Endpoints
@@ -387,17 +360,85 @@ app.get('/api/scan-etf', async (req, res) => {
 });
 
 /**
- * GET /api/scheduler/status — Scheduler state
+ * GET /api/scheduler/status — orchestrator state, all jobs + last-run info
  */
 app.get('/api/scheduler/status', (req, res) => {
   res.json({
-    enabled: scheduler.enabled,
-    intervalMinutes: scheduler.intervalMs / 60000,
-    lastScan: scheduler.lastScan,
-    nextScan: scheduler.nextScan,
-    scanCount: scheduler.scanCount,
-    isMarketOpen: isNSEMarketHours(),
+    ...orchestrator.status(),
+    isMarketOpen:    isNSEMarketHours(),
+    nextScan:        getNextScanTime().toISOString(),
+    legacyScanCount: scheduler.scanCount,
+    settings:        schedulerRepo.allSettings(),
   });
+});
+
+/**
+ * POST /api/scheduler/jobs/:id/run — fire a job manually
+ */
+app.post('/api/scheduler/jobs/:id/run', async (req, res) => {
+  try {
+    const result = await orchestrator.runNow(req.params.id);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/scheduler/jobs/:id/toggle — enable/disable a job
+ *   body: { enabled: bool }
+ */
+app.post('/api/scheduler/jobs/:id/toggle', (req, res) => {
+  try {
+    const enabled = !!req.body?.enabled;
+    res.json(orchestrator.toggle(req.params.id, enabled));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/scheduler/log — recent scheduler runs (any job)
+ *   ?limit=50
+ */
+app.get('/api/scheduler/log', (req, res) => {
+  const limit = Math.min(200, parseInt(req.query.limit || '50', 10));
+  res.json({ runs: schedulerRepo.recent(limit) });
+});
+
+/**
+ * POST /api/scheduler/killswitch/reset — clear killswitch trip
+ */
+app.post('/api/scheduler/killswitch/reset', (req, res) => {
+  schedulerRepo.setSetting('job:pre-market:enabled', '1');
+  schedulerRepo.setSetting('killswitch:tripped_at', '');
+  schedulerRepo.setSetting('killswitch:reason', '');
+  orchestrator.toggle('pre-market', true);
+  res.json({ ok: true, message: 'Killswitch reset, pre-market job re-enabled' });
+});
+
+/**
+ * GET /api/picks/today — today's curated picks (auto-tracked + blocked)
+ */
+app.get('/api/picks/today', (req, res) => {
+  const picks = picksRepo.forToday();
+  res.json({ date: new Date().toISOString().slice(0, 10), picks });
+});
+
+/**
+ * GET /api/picks/recent — recent days' pick counts
+ */
+app.get('/api/picks/recent', (req, res) => {
+  const limit = Math.min(60, parseInt(req.query.limit || '14', 10));
+  res.json({ days: picksRepo.recentDays(limit) });
+});
+
+/**
+ * GET /api/picks/:date — picks for a given date (YYYY-MM-DD)
+ */
+app.get('/api/picks/:date', (req, res) => {
+  const picks = picksRepo.forDate(req.params.date);
+  res.json({ date: req.params.date, picks });
 });
 
 // ============================================================
@@ -659,28 +700,29 @@ app.listen(PORT, () => {
   console.log(`   GET /api/portfolio          — Portfolio summary`);
   console.log(`   GET /api/scheduler/status   — Scheduler state\n`);
 
-  // Start auto-refresh scheduler
-  if (scheduler.enabled) {
-    startScheduler();
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // BACKGROUND ORCHESTRATOR — replaces the old setInterval scheduler.
+  // Provides the jobs with shared context (scan/backtest functions, capital).
+  // ─────────────────────────────────────────────────────────────────────────
+  const STOCK_UNIVERSE_EXTENDED_PROMISE = import('./src/engine/stockUniverseExtended.js').then(m => m.default);
 
-  // Initial earnings-calendar warm-up (best-effort, non-blocking)
   setTimeout(async () => {
     try {
-      const r = await refreshEarningsCalendar({ daysAhead: 14 });
-      console.log(`📅 Earnings calendar warmed: ${r.kept}/${r.fetched} events kept`);
-    } catch (e) {
-      console.warn('📅 Earnings warm-up failed:', e.message);
-    }
-  }, 8000);
+      const universeExt = await STOCK_UNIVERSE_EXTENDED_PROMISE;
+      const { runBacktest } = await import('./src/backtest/engine.js');
+      orchestrator.start({
+        runScan,
+        capital: CONFIG.TOTAL_CAPITAL,
+        runBacktest,
+        backtestRepo,
+        universe: universeExt,
+      });
 
-  // Refresh earnings calendar twice daily (07:30 + 16:30 IST)
-  setInterval(async () => {
-    try {
-      const r = await refreshEarningsCalendar({ daysAhead: 14 });
-      console.log(`📅 [cron] Refreshed earnings calendar: ${r.kept}/${r.fetched} kept`);
-    } catch (e) {
-      console.warn('📅 [cron] Refresh failed:', e.message);
+      // Warm caches once at startup (non-blocking)
+      try { await refreshEarningsCalendar({ daysAhead: 14 }); } catch (e) { console.warn('📅 Earnings warm-up failed:', e.message); }
+      try { await refreshRegime(); } catch (e) { console.warn('📊 Regime warm-up failed:', e.message); }
+    } catch (err) {
+      console.error('⏰ Orchestrator failed to start:', err.message);
     }
-  }, 6 * 60 * 60 * 1000); // every 6 hours
+  }, 5000);
 });

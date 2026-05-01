@@ -160,6 +160,49 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
   notes           TEXT
 );
 
+CREATE TABLE IF NOT EXISTS daily_picks (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  pick_date       TEXT NOT NULL,                            -- YYYY-MM-DD
+  symbol          TEXT NOT NULL,
+  name            TEXT,
+  sector          TEXT,
+  setup_type      TEXT,
+  confidence      REAL,
+  entry_price     REAL,
+  stop_loss       REAL,
+  target_price    REAL,
+  rr              REAL,
+  est_days        INTEGER,
+  regime          TEXT,
+  earnings_flag   TEXT,                                     -- 'blackout' | 'soon' | null
+  blocked_reason  TEXT,                                     -- if filtered out: why
+  auto_tracked    INTEGER NOT NULL DEFAULT 0,
+  trade_id        INTEGER,                                  -- FK to trades.id if auto-tracked
+  payload_json    TEXT,                                     -- full scored trade for replay
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(pick_date, symbol)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_picks_date ON daily_picks(pick_date);
+
+CREATE TABLE IF NOT EXISTS scheduler_log (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id          TEXT NOT NULL,
+  started_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at     TEXT,
+  status          TEXT NOT NULL DEFAULT 'running',          -- 'running' | 'ok' | 'error'
+  message         TEXT,
+  detail_json     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_scheduler_log_started ON scheduler_log(started_at);
+CREATE INDEX IF NOT EXISTS idx_scheduler_log_job ON scheduler_log(job_id, started_at);
+
+CREATE TABLE IF NOT EXISTS scheduler_settings (
+  key             TEXT PRIMARY KEY,
+  value           TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS backtest_trades (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id          INTEGER NOT NULL,
@@ -588,6 +631,101 @@ export const backtestRepo = {
     if (!run) return null;
     const trades = db.prepare(`SELECT * FROM backtest_trades WHERE run_id = ? ORDER BY entry_date`).all(id);
     return { ...run, trades };
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DAILY PICKS — curated final list per trading day
+// ─────────────────────────────────────────────────────────────────────────────
+
+const upsertPickStmt = db.prepare(`
+INSERT INTO daily_picks (pick_date, symbol, name, sector, setup_type, confidence,
+  entry_price, stop_loss, target_price, rr, est_days, regime, earnings_flag,
+  blocked_reason, auto_tracked, trade_id, payload_json)
+VALUES (@pick_date, @symbol, @name, @sector, @setup_type, @confidence,
+  @entry_price, @stop_loss, @target_price, @rr, @est_days, @regime, @earnings_flag,
+  @blocked_reason, @auto_tracked, @trade_id, @payload_json)
+ON CONFLICT(pick_date, symbol) DO UPDATE SET
+  confidence = excluded.confidence, entry_price = excluded.entry_price,
+  stop_loss = excluded.stop_loss, target_price = excluded.target_price,
+  rr = excluded.rr, regime = excluded.regime, earnings_flag = excluded.earnings_flag,
+  blocked_reason = excluded.blocked_reason, auto_tracked = excluded.auto_tracked,
+  trade_id = excluded.trade_id, payload_json = excluded.payload_json
+`);
+
+const getPicksByDateStmt = db.prepare(
+  `SELECT * FROM daily_picks WHERE pick_date = ? ORDER BY confidence DESC`
+);
+
+const getRecentPicksStmt = db.prepare(
+  `SELECT pick_date, COUNT(*) as count, SUM(auto_tracked) as tracked
+   FROM daily_picks GROUP BY pick_date ORDER BY pick_date DESC LIMIT ?`
+);
+
+export const picksRepo = {
+  upsert(pick) {
+    upsertPickStmt.run({
+      pick_date: pick.pickDate,
+      symbol:    pick.symbol,
+      name:      pick.name || null,
+      sector:    pick.sector || null,
+      setup_type: pick.setupType || null,
+      confidence: pick.confidence ?? null,
+      entry_price: pick.entryPrice ?? null,
+      stop_loss:   pick.stopLoss ?? null,
+      target_price: pick.targetPrice ?? null,
+      rr:          pick.rr ?? null,
+      est_days:    pick.estimatedDays ?? null,
+      regime:      pick.regime || null,
+      earnings_flag: pick.earningsFlag || null,
+      blocked_reason: pick.blockedReason || null,
+      auto_tracked: pick.autoTracked ? 1 : 0,
+      trade_id:     pick.tradeId ?? null,
+      payload_json: JSON.stringify(pick.payload || {}),
+    });
+  },
+  forDate(date) { return getPicksByDateStmt.all(date); },
+  recentDays(limit = 14) { return getRecentPicksStmt.all(limit); },
+  forToday() {
+    const today = new Date().toISOString().slice(0, 10);
+    return getPicksByDateStmt.all(today);
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCHEDULER LOG + SETTINGS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const insertSchedLogStmt = db.prepare(
+  `INSERT INTO scheduler_log (job_id, status, message) VALUES (?, 'running', ?)`
+);
+const finishSchedLogStmt = db.prepare(
+  `UPDATE scheduler_log SET finished_at = datetime('now'), status = ?, message = ?, detail_json = ? WHERE id = ?`
+);
+const recentSchedLogStmt = db.prepare(
+  `SELECT * FROM scheduler_log ORDER BY started_at DESC LIMIT ?`
+);
+
+export const schedulerRepo = {
+  start(jobId, msg = '') {
+    return insertSchedLogStmt.run(jobId, msg).lastInsertRowid;
+  },
+  finish(id, status = 'ok', message = '', detail = null) {
+    finishSchedLogStmt.run(status, message, detail ? JSON.stringify(detail) : null, id);
+  },
+  recent(limit = 50) { return recentSchedLogStmt.all(limit); },
+  // Settings (key-value)
+  setSetting(key, value) {
+    db.prepare(`INSERT INTO scheduler_settings (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, String(value));
+  },
+  getSetting(key, fallback = null) {
+    const row = db.prepare(`SELECT value FROM scheduler_settings WHERE key = ?`).get(key);
+    return row ? row.value : fallback;
+  },
+  allSettings() {
+    return db.prepare(`SELECT key, value FROM scheduler_settings`).all()
+      .reduce((acc, r) => { acc[r.key] = r.value; return acc; }, {});
   },
 };
 
