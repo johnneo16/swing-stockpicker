@@ -264,9 +264,22 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
 
 /**
  * Run the full scanning pipeline: fetch → analyze → score → rank → filter
+ *
+ * @param {Array} scoredStocks
+ * @param {number} [totalCapital]
+ * @param {object} [options]
+ *   - maxResults:    int, default 5 — how many picks to return
+ *   - excludeSymbols: Set<string>, default empty — symbols to skip entirely
+ *                    (used by orchestrator to exclude already-open positions
+ *                     so the scanner backfills with the next-best candidates
+ *                     instead of leaving slots empty)
+ *   - maxSectorExposure: int (passed through to validateTrade)
  */
 export function rankAndFilterTrades(scoredStocks, totalCapital = null, options = {}) {
-  const valid = scoredStocks.filter(s => s !== null);
+  const maxResults     = options.maxResults     ?? 5;
+  const excludeSymbols = options.excludeSymbols ?? new Set();
+
+  const valid = scoredStocks.filter(s => s !== null && !excludeSymbols.has(s.symbol));
 
   // Sort by confidence score descending
   valid.sort((a, b) => b.confidenceScore - a.confidenceScore);
@@ -287,11 +300,11 @@ export function rankAndFilterTrades(scoredStocks, totalCapital = null, options =
       trade.lowConfidence = false;
       selectedTrades.push(trade);
     }
-    if (selectedTrades.length >= 5) break;
+    if (selectedTrades.length >= maxResults) break;
   }
 
   // Pass 2: fill remaining slots from best available, no score floor
-  if (selectedTrades.length < 5) {
+  if (selectedTrades.length < maxResults) {
     const selectedSymbols = new Set(selectedTrades.map(t => t.symbol));
     for (const trade of valid) {
       if (selectedSymbols.has(trade.symbol)) continue;
@@ -302,7 +315,7 @@ export function rankAndFilterTrades(scoredStocks, totalCapital = null, options =
         trade.lowConfidence = true;
         selectedTrades.push(trade);
       }
-      if (selectedTrades.length >= 5) break;
+      if (selectedTrades.length >= maxResults) break;
     }
   }
 

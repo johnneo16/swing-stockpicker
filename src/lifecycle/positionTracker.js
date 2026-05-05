@@ -12,17 +12,66 @@
 
 import { tradesRepo, positionsRepo } from '../persistence/db.js';
 import { fetchAngelOneLTP, isAngelOneConfigured } from '../engine/angelOneProvider.js';
+import { CONFIG } from '../engine/riskEngine.js';
 import yahooFinance from 'yahoo-finance2';
 
 const USE_ANGELONE = isAngelOneConfigured();
 
 /**
  * Open a new tracked position from a scored trade.
+ *
+ * Layer-2 defense: even if a caller bypasses the orchestrator's filters
+ * (manual API call, future automation, test code), enforces:
+ *   - MAX_CONCURRENT_TRADES cap
+ *   - cash availability with CASH_RESERVE_PERCENT held back
+ *   - skipTradingGuards opt-out flag for legitimate special-case use
+ *
  * Idempotent: if a position is already open in this symbol+mode, returns existing.
+ *
+ * Throws on guard violation so callers can record the reason (orchestrator
+ * does this) rather than silently corrupting portfolio state.
+ *
+ * @param {object} scoredTrade — must have symbol, entryPrice, stopLoss,
+ *                               targetPrice, quantity, capitalRequired, riskAmount
+ * @param {string} [mode='paper']
+ * @param {object} [opts]
+ *   - totalCapital: number, default 50000 — used for cash-availability math
+ *   - skipGuards: bool, default false — bypass guards (use only for tests/migrations)
  */
-export function openPosition(scoredTrade, mode = 'paper') {
+export function openPosition(scoredTrade, mode = 'paper', opts = {}) {
   const existing = tradesRepo.getOpenBySymbol(scoredTrade.symbol, mode);
   if (existing) return existing;
+
+  const totalCapital = opts.totalCapital || CONFIG.TOTAL_CAPITAL;
+  const skipGuards   = opts.skipGuards === true;
+
+  // ── Layer-2 defense (skippable for migrations / tests) ──────────────────
+  if (!skipGuards) {
+    const open = tradesRepo.getOpen(mode);
+
+    // Guard 1: hard cap on concurrent positions
+    if (open.length >= CONFIG.MAX_CONCURRENT_TRADES) {
+      throw new Error(
+        `[openPosition guard] Portfolio at ${open.length}/${CONFIG.MAX_CONCURRENT_TRADES}-position cap. ` +
+        `Refusing to open ${scoredTrade.symbol}.`
+      );
+    }
+
+    // Guard 2: cash availability (keep CASH_RESERVE_PERCENT free)
+    const deployed     = open.reduce((sum, t) => sum + (t.capital || 0), 0);
+    const cashRemaining = totalCapital - deployed;
+    const minReserve   = totalCapital * CONFIG.CASH_RESERVE_PERCENT;
+    const deployable   = cashRemaining - minReserve;
+    const need         = scoredTrade.capitalRequired || 0;
+
+    if (need > deployable) {
+      throw new Error(
+        `[openPosition guard] Insufficient capital for ${scoredTrade.symbol}: ` +
+        `need ₹${need}, only ₹${Math.round(deployable)} deployable ` +
+        `(cash ₹${Math.round(cashRemaining)} − ${CONFIG.CASH_RESERVE_PERCENT * 100}% reserve ₹${Math.round(minReserve)}).`
+      );
+    }
+  }
 
   const tradeId = tradesRepo.open({
     symbol:           scoredTrade.symbol,

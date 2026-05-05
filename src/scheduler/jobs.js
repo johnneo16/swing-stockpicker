@@ -13,7 +13,7 @@
 
 import { picksRepo, tradesRepo, schedulerRepo } from '../persistence/db.js';
 import {
-  openPosition, markAllToMarket, listOpenPositions,
+  openPosition, markAllToMarket, listOpenPositions, portfolioSummary,
 } from '../lifecycle/positionTracker.js';
 import { runExitCycle } from '../lifecycle/exitEngine.js';
 import { refreshEarningsCalendar, isEarningsBlackout } from '../intelligence/earningsFetcher.js';
@@ -35,10 +35,14 @@ function isMarketHoliday() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Runs at 09:00 IST on weekdays. Uses an injected `runScan` to get a
- * fresh scan, applies regime + earnings filters, and writes the curated
- * list to daily_picks. If autoTrack=true, also opens paper positions
- * for the survivors (within risk caps).
+ * Runs at 09:00 IST on weekdays. Refreshes regime + earnings calendar,
+ * gets a fresh scan that EXCLUDES existing open positions (so the scanner
+ * backfills from candidate #6+ instead of leaving slots empty), then
+ * iterates the candidates applying filters. Tracks survivors only if
+ * (a) we're under MAX_CONCURRENT_TRADES and (b) cash + 15% reserve allows.
+ *
+ * Goal: always 5 fresh picks tracked when capacity exists. If portfolio is
+ * already at cap, returns 0 tracked with a clear "portfolio full" message.
  *
  * @param {object} ctx — { runScan, capital, autoTrack }
  */
@@ -54,23 +58,50 @@ export async function jobPreMarket(ctx = {}) {
     refreshEarningsCalendar({ daysAhead: 14 }).catch(() => ({ kept: 0 })),
   ]);
 
-  // 2. Get a fresh scan (forced refresh)
-  const scanResult = await runScan(true, capital);
-  const trades = scanResult.trades || [];
-  if (trades.length === 0) {
-    return { ok: true, message: 'Scan returned no picks', detail: { regime: regime?.regime } };
+  // 2. Snapshot portfolio state before scan
+  const today = todayISO();
+  const existingOpen = listOpenPositions('paper');
+  const existingSymbols = new Set(existingOpen.map(p => p.symbol));
+  const portfolio = portfolioSummary('paper', capital);
+
+  const slotsAvailable = CONFIG.MAX_CONCURRENT_TRADES - existingOpen.length;
+  let cashAvailable = portfolio.cashRemaining;
+  const minCashReserve = capital * CONFIG.CASH_RESERVE_PERCENT;
+
+  // Bail early if we're already at/over capacity (existing 9-position bug case)
+  if (slotsAvailable <= 0) {
+    return {
+      ok: true,
+      message: `Portfolio at/over capacity (${existingOpen.length}/${CONFIG.MAX_CONCURRENT_TRADES}). No new picks until exits free slots.`,
+      detail: {
+        regime: regime?.regime,
+        existingOpen: existingOpen.length,
+        cap: CONFIG.MAX_CONCURRENT_TRADES,
+        cashRemaining: cashAvailable,
+      },
+    };
   }
 
-  // 3. Apply regime bias filtering
+  // 3. Get a fresh scan that EXCLUDES our existing positions and returns deeper
+  //    candidates so we can backfill if any get blocked by filters below.
+  const scanResult = await runScan(true, capital, {
+    excludeSymbols: existingSymbols,
+    maxResults:     Math.max(slotsAvailable * 3, 10), // ~3× headroom for filtering
+  });
+  const trades = scanResult.trades || [];
+  if (trades.length === 0) {
+    return { ok: true, message: 'Scan returned no candidates', detail: { regime: regime?.regime } };
+  }
+
+  // 4. Apply remaining filters per candidate, opening positions until we hit
+  //    slotsAvailable (target = 5 NEW picks per day).
   const bias = regimeBias(regime?.regime || 'neutral');
-  const today = todayISO();
   const tracked = [];
   const blocked = [];
 
-  // Existing open paper positions — don't duplicate
-  const openSymbols = new Set(listOpenPositions('paper').map(p => p.symbol));
-
   for (const t of trades) {
+    if (tracked.length >= slotsAvailable) break;
+
     let blockedReason = null;
 
     // Filter 1: earnings blackout (≤2 days)
@@ -82,18 +113,21 @@ export async function jobPreMarket(ctx = {}) {
     if (!blockedReason && bias.avoid?.includes(t.setupType)) {
       blockedReason = `regime avoids ${t.setupType} in ${regime?.regime}`;
     }
-    // Filter 3: low confidence (Pass-2 fillers)
+    // Filter 3: low confidence (Pass-2 fillers — never auto-track)
     if (!blockedReason && t.lowConfidence) {
       blockedReason = `low confidence (Pass-2 filler)`;
     }
-    // Filter 4: already open
-    if (!blockedReason && openSymbols.has(t.symbol)) {
-      blockedReason = 'already open in paper portfolio';
-    }
-    // Filter 5: regime score nudge (drop if score below adjusted floor)
+    // Filter 4: regime score nudge (drop if score below adjusted floor)
     const nudge = bias.scoreNudge ?? 0;
     if (!blockedReason && (t.confidenceScore + nudge) < 50) {
       blockedReason = `score ${t.confidenceScore}+${nudge} below floor 50`;
+    }
+    // Filter 5: capital availability — keep ≥ CASH_RESERVE_PERCENT of capital free
+    if (!blockedReason) {
+      const deployable = cashAvailable - minCashReserve;
+      if (t.capitalRequired > deployable) {
+        blockedReason = `insufficient capital: need ₹${t.capitalRequired}, only ₹${Math.round(deployable)} deployable (cash ₹${Math.round(cashAvailable)} − ${CONFIG.CASH_RESERVE_PERCENT * 100}% reserve)`;
+      }
     }
 
     const earningsFlag = blackout ? 'blackout' : null;
@@ -108,18 +142,20 @@ export async function jobPreMarket(ctx = {}) {
         regime: regime?.regime || null, earningsFlag,
         blockedReason, autoTracked: false, payload: t,
       });
-      continue;
+      continue; // try next candidate (backfill)
     }
 
     // Survivor — record + optionally auto-track
     let tradeId = null;
     if (autoTrack) {
       try {
-        const opened = openPosition(t, 'paper');
+        const opened = openPosition(t, 'paper', { totalCapital: capital });
         tradeId = opened.id;
-        openSymbols.add(t.symbol); // prevent dupes within this run
+        cashAvailable -= t.capitalRequired; // decrement local mirror for next iteration
       } catch (e) {
-        blockedReason = `track failed: ${e.message}`;
+        // Layer 2 guard tripped (capacity/capital) — record + skip
+        blockedReason = `track refused: ${e.message}`;
+        blocked.push({ symbol: t.symbol, reason: blockedReason });
       }
     }
 
@@ -141,7 +177,10 @@ export async function jobPreMarket(ctx = {}) {
     detail: {
       regime: regime?.regime,
       bias,
-      totalScanned: trades.length,
+      slotsAvailable,
+      cashStart: portfolio.cashRemaining,
+      cashEnd: cashAvailable,
+      totalCandidates: trades.length,
       tracked, blocked,
       earningsKept: earningsRefresh?.kept,
     },
@@ -217,16 +256,28 @@ export async function jobEarningsRefresh() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Runs after EOD. If realized + unrealized drawdown breaches the kill threshold,
- * disables auto-tracking until the user manually re-enables. Closes any positions
- * deeper than 2× initial risk (catastrophic-loss tripwire).
+ * Killswitch — runs after EOD. Trips on ANY of:
+ *   1. Combined realized + unrealized drawdown > killDrawdownPct (default 8%)
+ *   2. Capital deployed > 100% (over-leverage)
+ *   3. Open position count > MAX_CONCURRENT_TRADES
+ *   4. Single position with >killCatastrophicPct% unrealized loss (default -8%)
+ *
+ * On any trip:
+ *   - Disables pre-market auto-tracking
+ *   - Persists tripped_at + reason in scheduler_settings
+ *   - User must manually call /api/scheduler/killswitch/reset
  */
-export async function jobRiskKillswitch({ killDrawdownPct = 8 } = {}) {
+export async function jobRiskKillswitch({
+  killDrawdownPct      = 8,
+  killCatastrophicPct  = 8,   // single-position loss threshold
+  capital              = CONFIG.TOTAL_CAPITAL,
+} = {}) {
   const stats = tradesRepo.journalStats('paper');
   const positions = listOpenPositions('paper');
+  const portfolio = portfolioSummary('paper', capital);
 
   // Combined drawdown signal: realized DD + unrealized loss as % of capital
-  const startingCapital = stats.startingCapital || 50000;
+  const startingCapital = stats.startingCapital || capital;
   const unrealizedPnl = positions.reduce((s, p) => s + (p.unrealizedPnl || 0), 0);
   const totalEquity = (stats.finalEquity || startingCapital) + unrealizedPnl;
   const peak = Math.max(stats.finalEquity || startingCapital, startingCapital);
@@ -234,31 +285,53 @@ export async function jobRiskKillswitch({ killDrawdownPct = 8 } = {}) {
   const recordedMaxDD = stats.maxDrawdownPct || 0;
   const drawdown = Math.max(liveDrawdownPct, recordedMaxDD);
 
-  let breached = false;
-  let triggers = [];
+  const triggers = [];
 
+  // Trigger 1: drawdown
   if (drawdown > killDrawdownPct) {
-    schedulerRepo.setSetting('job:pre-market:enabled', '0');
-    schedulerRepo.setSetting('killswitch:tripped_at', new Date().toISOString());
-    schedulerRepo.setSetting('killswitch:reason', `drawdown ${drawdown.toFixed(2)}% > ${killDrawdownPct}%`);
-    breached = true;
-    triggers.push(`drawdown ${drawdown.toFixed(2)}%`);
+    triggers.push(`drawdown ${drawdown.toFixed(2)}% > ${killDrawdownPct}%`);
   }
 
-  // Catastrophic loss check — any single position past 2× initial risk
+  // Trigger 2: over-leverage (THE bug class that broke us today)
+  if (portfolio.deploymentPct > 100) {
+    triggers.push(`over-leverage: deployed ${portfolio.deploymentPct}% (₹${portfolio.capitalDeployed} > ₹${capital})`);
+  }
+
+  // Trigger 3: too many open positions
+  if (positions.length > CONFIG.MAX_CONCURRENT_TRADES) {
+    triggers.push(`position count ${positions.length}/${CONFIG.MAX_CONCURRENT_TRADES}`);
+  }
+
+  // Trigger 4: catastrophic single-position loss
   for (const p of positions) {
-    const initialRisk = (p.entryPrice - p.initialStop);
-    if (initialRisk > 0 && p.unrealizedPnl < -2 * initialRisk * p.quantity) {
-      triggers.push(`${p.symbol} past 2R loss`);
+    if ((p.unrealizedPct ?? 0) < -killCatastrophicPct) {
+      triggers.push(`${p.symbol} at ${p.unrealizedPct.toFixed(2)}% (catastrophic)`);
     }
+  }
+
+  if (triggers.length > 0) {
+    schedulerRepo.setSetting('job:pre-market:enabled', '0');
+    schedulerRepo.setSetting('killswitch:tripped_at', new Date().toISOString());
+    schedulerRepo.setSetting('killswitch:reason', triggers.join('; '));
+    return {
+      ok: true,
+      message: `🛑 KILLSWITCH TRIPPED: ${triggers.join(', ')}. Pre-market disabled.`,
+      detail: {
+        drawdown, deploymentPct: portfolio.deploymentPct,
+        positionCount: positions.length,
+        triggers, tripped: true,
+      },
+    };
   }
 
   return {
     ok: true,
-    message: breached
-      ? `🛑 KILLSWITCH TRIPPED: ${triggers.join(', ')}. Auto-tracking disabled.`
-      : `Risk OK: drawdown ${drawdown.toFixed(2)}% / ${killDrawdownPct}%`,
-    detail: { drawdown, killDrawdownPct, breached, triggers, openCount: positions.length },
+    message: `Risk OK — drawdown ${drawdown.toFixed(2)}%, deployed ${portfolio.deploymentPct}%, ${positions.length}/${CONFIG.MAX_CONCURRENT_TRADES} open`,
+    detail: {
+      drawdown, deploymentPct: portfolio.deploymentPct,
+      positionCount: positions.length,
+      triggers: [], tripped: false,
+    },
   };
 }
 

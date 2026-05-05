@@ -121,12 +121,16 @@ function getNextScanTime() {
 // Core Scan Logic
 // ============================================================
 
-async function runScan(force = false, capital = null) {
+async function runScan(force = false, capital = null, scanOptions = {}) {
   const totalCapital = capital || CONFIG.TOTAL_CAPITAL;
   const now = Date.now();
 
-  // Check cache
-  if (!force && scanCache.data && (now - scanCache.timestamp) < scanCache.CACHE_TTL) {
+  // Check cache — but skip cache if scan was requested with custom filtering
+  // (e.g. orchestrator passing excludeSymbols for a portfolio-aware scan,
+  // or maxResults higher than default)
+  const hasCustomFilters = (scanOptions.excludeSymbols && scanOptions.excludeSymbols.size > 0)
+                        || (scanOptions.maxResults && scanOptions.maxResults !== 5);
+  if (!force && !hasCustomFilters && scanCache.data && (now - scanCache.timestamp) < scanCache.CACHE_TTL) {
     return { ...scanCache.data, cached: true, cachedAt: new Date(scanCache.timestamp).toISOString() };
   }
 
@@ -165,8 +169,11 @@ async function runScan(force = false, capital = null) {
   }).filter(Boolean);
   console.log(`  🧠 Scored ${scored.length} stocks`);
 
-  // 4. Rank and filter
-  const result = rankAndFilterTrades(scored, totalCapital);
+  // 4. Rank and filter (orchestrator can pass excludeSymbols + maxResults)
+  const result = rankAndFilterTrades(scored, totalCapital, {
+    maxResults:     scanOptions.maxResults     ?? 5,
+    excludeSymbols: scanOptions.excludeSymbols ?? new Set(),
+  });
 
   // 4b. Enrich each trade with upcoming-event flags (earnings blackout etc.)
   let blackoutCount = 0;
