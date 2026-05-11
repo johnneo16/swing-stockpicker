@@ -1,8 +1,39 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, Suspense } from 'react';
 import {
   Sun, CheckCircle2, XCircle, AlertTriangle, Activity, Play,
-  RefreshCw, Power, Zap, Calendar, Settings,
+  RefreshCw, Power, Zap, Calendar, Settings, BarChart3,
 } from 'lucide-react';
+
+// Lazy-load TradeCard so this tab stays light
+const TradeCard = React.lazy(() => import('./TradeCard.jsx'));
+
+/**
+ * Reconstruct a TradeCard-shaped object from a daily_picks row.
+ * The payload_json column holds the original scoreStock output, so we
+ * just merge the live row metadata on top of it.
+ */
+function pickToCard(p) {
+  let payload = {};
+  try { payload = JSON.parse(p.payload_json || '{}'); } catch (_) {}
+  return {
+    ...payload,
+    symbol:          p.symbol,
+    name:            p.name,
+    sector:          p.sector,
+    setupType:       p.setup_type,
+    confidenceScore: p.confidence,
+    entryPrice:      p.entry_price,
+    stopLoss:        p.stop_loss,
+    targetPrice:     p.target_price,
+    riskRewardRatio: p.rr,
+    estimatedDays:   p.est_days,
+    // Mark as currently-open or just-a-candidate for UI hints
+    isHolding:       p.auto_tracked === 1 && !!p.trade_id,
+    blockedReason:   p.blocked_reason,
+    eventBlackout:   p.earnings_flag === 'blackout',
+    upcomingEvent:   p.earnings_flag === 'blackout' ? { eventType: 'earnings', eventDate: p.event_date, daysUntil: 2 } : null,
+  };
+}
 
 /**
  * Today's Picks tab — single-pane view of:
@@ -177,6 +208,50 @@ export default function TodaysPicksTab() {
           </div>
         )}
       </div>
+
+      {/* Full TradeCard view of today's picks — same rich card layout as Dashboard */}
+      {picks.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header">
+            <div className="card-title">
+              <BarChart3 size={16} className="inline-icon" /> Today's Picks — Full Detail
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              {tracked.length} tracked · {blocked.length} blocked (shown with reason banner)
+            </div>
+          </div>
+          <Suspense fallback={
+            <div>{[1, 2, 3].map(i => <div key={i} className="loading-skeleton skeleton-card" />)}</div>
+          }>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Tracked picks first (sorted by confidence desc) */}
+              {picks
+                .filter(p => p.auto_tracked === 1)
+                .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+                .map(p => <TradeCard key={`tracked-${p.id}`} trade={pickToCard(p)} />)}
+              {/* Then blocked candidates (with banner explaining why) */}
+              {picks
+                .filter(p => p.blocked_reason)
+                .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+                .map(p => (
+                  <div key={`blocked-${p.id}`} style={{ position: 'relative', opacity: 0.78 }}>
+                    <div style={{
+                      position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1,
+                      background: 'rgba(245, 158, 11, 0.14)',
+                      borderBottom: '1px solid rgba(245, 158, 11, 0.35)',
+                      color: '#fcd34d', fontSize: '0.72rem', fontWeight: 600,
+                      padding: '6px 16px', letterSpacing: 0.02,
+                      borderTopLeftRadius: 12, borderTopRightRadius: 12,
+                    }}>
+                      ⚠ BLOCKED — {p.blocked_reason}
+                    </div>
+                    <TradeCard trade={pickToCard(p)} />
+                  </div>
+                ))}
+            </div>
+          </Suspense>
+        </div>
+      )}
 
       {/* Scheduler / Automation panel */}
       {scheduler && (
