@@ -67,41 +67,33 @@ export async function jobPreMarket(ctx = {}) {
   const slotsAvailable = CONFIG.MAX_CONCURRENT_TRADES - existingOpen.length;
   let cashAvailable = portfolio.cashRemaining;
   const minCashReserve = capital * CONFIG.CASH_RESERVE_PERCENT;
+  const portfolioFull = slotsAvailable <= 0;
 
-  // Bail early if we're already at/over capacity (existing 9-position bug case)
-  if (slotsAvailable <= 0) {
-    return {
-      ok: true,
-      message: `Portfolio at/over capacity (${existingOpen.length}/${CONFIG.MAX_CONCURRENT_TRADES}). No new picks until exits free slots.`,
-      detail: {
-        regime: regime?.regime,
-        existingOpen: existingOpen.length,
-        cap: CONFIG.MAX_CONCURRENT_TRADES,
-        cashRemaining: cashAvailable,
-      },
-    };
-  }
-
-  // 3. Get a fresh scan that EXCLUDES our existing positions and returns deeper
-  //    candidates so we can backfill if any get blocked by filters below.
+  // 3. ALWAYS run the scan — we want today's picks recorded in daily_picks
+  //    even when portfolio is full so the user sees what the engine likes
+  //    today (with a clear "blocked: portfolio over capacity" reason).
+  //    Returns deeper candidates so the backfill cascade below has headroom.
   const scanResult = await runScan(true, capital, {
     excludeSymbols: existingSymbols,
-    maxResults:     Math.max(slotsAvailable * 3, 10), // ~3× headroom for filtering
+    maxResults:     5, // target slate of 5 fresh picks/day
   });
   const trades = scanResult.trades || [];
   if (trades.length === 0) {
-    return { ok: true, message: 'Scan returned no candidates', detail: { regime: regime?.regime } };
+    return {
+      ok: true,
+      message: `Scan returned no candidates${portfolioFull ? ` (portfolio also at ${existingOpen.length}/${CONFIG.MAX_CONCURRENT_TRADES})` : ''}`,
+      detail: { regime: regime?.regime, portfolioFull, slotsAvailable },
+    };
   }
 
-  // 4. Apply remaining filters per candidate, opening positions until we hit
-  //    slotsAvailable (target = 5 NEW picks per day).
+  // 4. Apply filters per candidate. Record ALL of them to daily_picks so
+  //    today's view always shows what the engine picked today — blocked
+  //    ones get a clear reason banner in the UI.
   const bias = regimeBias(regime?.regime || 'neutral');
   const tracked = [];
   const blocked = [];
 
   for (const t of trades) {
-    if (tracked.length >= slotsAvailable) break;
-
     let blockedReason = null;
 
     // Filter 1: earnings blackout (≤2 days)
@@ -122,7 +114,12 @@ export async function jobPreMarket(ctx = {}) {
     if (!blockedReason && (t.confidenceScore + nudge) < 50) {
       blockedReason = `score ${t.confidenceScore}+${nudge} below floor 50`;
     }
-    // Filter 5: capital availability — keep ≥ CASH_RESERVE_PERCENT of capital free
+    // Filter 5: portfolio at/over capacity — block here so the pick is still
+    //          recorded and visible in the UI with a clear reason
+    if (!blockedReason && (portfolioFull || tracked.length >= slotsAvailable)) {
+      blockedReason = `portfolio over capacity (${existingOpen.length + tracked.length}/${CONFIG.MAX_CONCURRENT_TRADES}); waiting for exits`;
+    }
+    // Filter 6: capital availability — keep ≥ CASH_RESERVE_PERCENT free
     if (!blockedReason) {
       const deployable = cashAvailable - minCashReserve;
       if (t.capitalRequired > deployable) {
@@ -132,33 +129,21 @@ export async function jobPreMarket(ctx = {}) {
 
     const earningsFlag = blackout ? 'blackout' : null;
 
-    if (blockedReason) {
-      blocked.push({ symbol: t.symbol, reason: blockedReason });
-      picksRepo.upsert({
-        pickDate: today, symbol: t.symbol, name: t.name, sector: t.sector,
-        setupType: t.setupType, confidence: t.confidenceScore,
-        entryPrice: t.entryPrice, stopLoss: t.stopLoss, targetPrice: t.targetPrice,
-        rr: t.riskRewardRatio, estimatedDays: t.estimatedDays,
-        regime: regime?.regime || null, earningsFlag,
-        blockedReason, autoTracked: false, payload: t,
-      });
-      continue; // try next candidate (backfill)
-    }
-
-    // Survivor — record + optionally auto-track
+    // Try to auto-track if no blocked reason
     let tradeId = null;
-    if (autoTrack) {
+    if (!blockedReason && autoTrack) {
       try {
         const opened = openPosition(t, 'paper', { totalCapital: capital });
         tradeId = opened.id;
-        cashAvailable -= t.capitalRequired; // decrement local mirror for next iteration
+        cashAvailable -= t.capitalRequired; // decrement local mirror
       } catch (e) {
-        // Layer 2 guard tripped (capacity/capital) — record + skip
+        // Layer 2 guard tripped — record as blocked
         blockedReason = `track refused: ${e.message}`;
-        blocked.push({ symbol: t.symbol, reason: blockedReason });
       }
     }
 
+    // ALWAYS record the pick in daily_picks (the one-shot fix — was previously
+    // skipped when over-capacity, leaving Today tab empty)
     picksRepo.upsert({
       pickDate: today, symbol: t.symbol, name: t.name, sector: t.sector,
       setupType: t.setupType, confidence: t.confidenceScore,
@@ -168,16 +153,45 @@ export async function jobPreMarket(ctx = {}) {
       blockedReason, autoTracked: tradeId !== null, tradeId, payload: t,
     });
 
-    if (tradeId) tracked.push({ symbol: t.symbol, tradeId, confidence: t.confidenceScore });
+    if (tradeId) {
+      tracked.push({ symbol: t.symbol, tradeId, confidence: t.confidenceScore });
+    } else if (blockedReason) {
+      blocked.push({ symbol: t.symbol, reason: blockedReason });
+    }
+  }
+
+  // Build a message that reflects WHAT actually blocked the picks
+  let message;
+  if (tracked.length > 0) {
+    message = `${tracked.length} tracked, ${blocked.length} blocked. Regime: ${regime?.regime || 'unknown'}`;
+  } else {
+    // Group blocked by top reason category for a readable summary
+    const counts = blocked.reduce((acc, b) => {
+      let key = 'other';
+      if (b.reason?.includes('over capacity'))         key = 'capacity';
+      else if (b.reason?.includes('earnings on'))      key = 'earnings';
+      else if (b.reason?.includes('regime avoids'))    key = 'regime';
+      else if (b.reason?.includes('below floor'))      key = 'score';
+      else if (b.reason?.includes('insufficient capital')) key = 'capital';
+      else if (b.reason?.includes('low confidence'))   key = 'low-conf';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    const breakdown = Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ');
+    const prefix = portfolioFull
+      ? `Portfolio at ${existingOpen.length}/${CONFIG.MAX_CONCURRENT_TRADES}`
+      : `0 tracked`;
+    message = `${prefix}. ${trades.length} candidates recorded (blocked: ${breakdown}). Regime: ${regime?.regime || 'unknown'}`;
   }
 
   return {
     ok: true,
-    message: `${tracked.length} tracked, ${blocked.length} blocked. Regime: ${regime?.regime || 'unknown'}`,
+    message,
     detail: {
       regime: regime?.regime,
       bias,
       slotsAvailable,
+      portfolioFull,
       cashStart: portfolio.cashRemaining,
       cashEnd: cashAvailable,
       totalCandidates: trades.length,
