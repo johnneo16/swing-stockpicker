@@ -21,7 +21,7 @@ import {
 } from './src/intelligence/earningsFetcher.js';
 import { refreshRegime, getRegime, regimeBias } from './src/intelligence/regimeDetector.js';
 import { orchestrator } from './src/scheduler/orchestrator.js';
-import { picksRepo, schedulerRepo } from './src/persistence/db.js';
+import { picksRepo, schedulerRepo, db } from './src/persistence/db.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -511,6 +511,90 @@ app.post('/api/positions/exit-cycle', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+/**
+ * GET /api/positions/cards — currently-held positions in TradeCard format.
+ *
+ * This is the Dashboard's primary data source. When a position closes
+ * (status='closed'), it's automatically excluded — so closed trades
+ * disappear from the dashboard view without needing a refresh.
+ *
+ * Each card combines:
+ *   - Original scored-trade payload from daily_picks (technicalReasoning,
+ *     whyThisWorks, scoreBreakdown, chartData, fundamentals, etc.)
+ *   - Current live state from positions table (CMP, unrealized PnL, R-multiple)
+ *   - Trade metadata (current stop after BE/trail, held days, lifecycle flags)
+ *
+ * Fallback path: if no daily_picks row exists for the symbol (e.g. position
+ * opened directly via API), reconstruct minimal card from trades.metadata.
+ */
+app.get('/api/positions/cards', (req, res) => {
+  const mode = req.query.mode === 'live' ? 'live' : 'paper';
+  const positions = listOpenPositions(mode);
+
+  const getPayloadStmt = db.prepare(`
+    SELECT payload_json FROM daily_picks
+    WHERE symbol = ? AND auto_tracked = 1
+    ORDER BY pick_date DESC LIMIT 1
+  `);
+
+  const cards = positions.map(p => {
+    let originalPayload = {};
+    const pickRow = getPayloadStmt.get(p.symbol);
+    if (pickRow?.payload_json) {
+      try { originalPayload = JSON.parse(pickRow.payload_json); } catch (_) {}
+    }
+
+    // Synthesize day-change vs entry (since positions don't track prev-close)
+    const dayChange = p.unrealizedPct ?? 0;
+
+    return {
+      // Original scored payload as the base (preserves technicalReasoning,
+      // whyWorks, whyFails, chartData, fundamentals, scoreBreakdown, signals, etc.)
+      ...originalPayload,
+
+      // Identity (overrides in case daily_picks payload is stale)
+      symbol:   p.symbol,
+      name:     p.name,
+      sector:   p.sector,
+      setupType: p.setupType,
+
+      // Trade economics — use entry from trades table (source of truth)
+      entryPrice:      p.entryPrice,
+      stopLoss:        p.currentStop,        // current — may have moved to BE
+      initialStop:     p.initialStop,
+      targetPrice:     p.target,
+      quantity:        p.quantity,
+      capitalRequired: p.capital,
+      riskAmount:      p.riskAmount,
+      confidenceScore: p.confidence,
+      estimatedDays:   p.estimatedDays,
+
+      // Live state
+      currentMarketPrice: p.lastPrice ?? p.entryPrice,
+      dayChange,
+      unrealizedPnl:      p.unrealizedPnl,
+      unrealizedPct:      p.unrealizedPct,
+      rMultiple:          p.rMultiple,
+      heldDays:           p.heldDays,
+      distanceToStopPct:   p.distanceToStopPct,
+      distanceToTargetPct: p.distanceToTargetPct,
+
+      // Lifecycle flags
+      isHolding:    true,
+      tradeId:      p.id,
+      beMoved:      p.beMoved,
+      partialTaken: p.partialTaken,
+      trailActive:  p.trailActive,
+
+      // R:R from original payload, computed if missing
+      riskRewardRatio: originalPayload.riskRewardRatio
+        || (p.target - p.entryPrice) / (p.entryPrice - p.initialStop || 1),
+    };
+  });
+
+  res.json({ mode, count: cards.length, cards });
 });
 
 /**

@@ -111,7 +111,8 @@ export default function App() {
     return saved ? Number(saved) : DEFAULT_CAPITAL;
   });
 
-  const [trades, setTrades] = useState([]);
+  const [trades, setTrades] = useState([]);        // raw scan results (used to seed alerts only now)
+  const [holdings, setHoldings] = useState([]);    // currently-held paper positions (Dashboard source)
   const [etfTrades, setEtfTrades] = useState([]);
   const [portfolio, setPortfolio] = useState(() => makeFallbackPortfolio(capital));
   const [etfPortfolio, setEtfPortfolio] = useState(null);
@@ -134,8 +135,10 @@ export default function App() {
   const autoRefreshTimer = useRef(null);
   const countdownTimer = useRef(null);
 
-  const rawTrades = scanMode === 'stocks' ? trades : etfTrades;
-  const activeTrades = highConvictionOnly ? rawTrades.filter(t => t.confidenceScore >= 60) : rawTrades;
+  // Dashboard now sources from currently-held positions in stocks mode
+  // (auto-removes closed trades). ETF mode still uses scan results.
+  const rawTrades = scanMode === 'stocks' ? holdings : etfTrades;
+  const activeTrades = highConvictionOnly ? rawTrades.filter(t => (t.confidenceScore || 0) >= 60) : rawTrades;
   const activePortfolio = scanMode === 'stocks' ? portfolio : (etfPortfolio || portfolio);
 
   const toggleHighConviction = useCallback(() => {
@@ -183,6 +186,40 @@ export default function App() {
     } catch { /* keep sample */ }
   }, []);
 
+  // Load currently-held positions (the dashboard's primary data source in stocks mode).
+  // Cheap: just a DB read + in-memory enrichment, no external API calls.
+  // Called on mount, after every scan, and on a 30s auto-poll while open.
+  const loadHoldings = useCallback(async () => {
+    try {
+      const [cardsRes, portRes] = await Promise.all([
+        fetch('/api/positions/cards?mode=paper').then(r => r.json()),
+        fetch(`/api/portfolio/live?mode=paper&capital=${capital}`).then(r => r.json()),
+      ]);
+      setHoldings(cardsRes.cards || []);
+      // Map portfolio/live response to the shape PortfolioSummary expects
+      if (portRes && !portRes.error) {
+        setPortfolio({
+          totalCapital:        portRes.totalCapital ?? capital,
+          capitalDeployed:     portRes.capitalDeployed ?? 0,
+          remainingCash:       portRes.cashRemaining ?? capital,
+          cashReserveTarget:   Math.round(capital * 0.15),
+          totalRiskExposure:   portRes.openRisk ?? 0,
+          riskExposurePercent: portRes.initialRiskPct ?? 0,
+          activeTradeCount:    portRes.activePositions ?? 0,
+          maxTrades:           5,
+          deploymentPercent:   portRes.deploymentPct ?? 0,
+          sectorDistribution:  portRes.sectorDistribution ?? {},
+          unrealizedPnl:       portRes.unrealizedPnl ?? 0,
+          unrealizedPct:       portRes.unrealizedPct ?? 0,
+        });
+      }
+      setIsLive(true);
+    } catch (err) {
+      // Holdings load failure isn't fatal — just keep what we have
+      console.warn('loadHoldings failed:', err);
+    }
+  }, [capital]);
+
   const runScan = useCallback(async (silent = false) => {
     if (!silent) setScanning(true);
     setError(null);
@@ -223,6 +260,7 @@ export default function App() {
         setIsLive(false);
       }
       fetchMarketOverview();
+      loadHoldings(); // refresh dashboard holdings in case the scan added new tracks
     } catch (err) {
       clearTimeout(timeoutId);
       setIsLive(false);
@@ -257,6 +295,14 @@ export default function App() {
   }, [autoRefresh, runScan]);
 
   useEffect(() => { fetchMarketOverview(); }, [fetchMarketOverview]);
+
+  // Initial load + 30s polling for held positions (drives Dashboard in stocks mode).
+  // 30s cadence catches MTM updates and position closures quickly while staying cheap.
+  useEffect(() => {
+    loadHoldings();
+    const interval = setInterval(loadHoldings, 30_000);
+    return () => clearInterval(interval);
+  }, [loadHoldings]);
 
   useEffect(() => {
     runScan(true);
@@ -421,11 +467,17 @@ export default function App() {
             ) : (
               <div className="empty-state">
                 <div className="empty-icon"><Search size={48} className="text-muted" strokeWidth={1}/></div>
-                <div className="empty-title">No {scanMode === 'etf' ? 'ETF Setups' : 'Trade Setups'} Found</div>
+                <div className="empty-title">
+                  {scanMode === 'stocks' ? 'No Open Positions' : 'No ETF Setups Found'}
+                </div>
                 <div className="empty-text">
-                  {isLive === false
-                    ? 'Start the backend server and click Scan to discover live setups.'
-                    : 'Market may be closed or no setups meet the current criteria. Try scanning during market hours (9:15 AM – 3:30 PM IST).'}
+                  {scanMode === 'stocks'
+                    ? (isLive === false
+                        ? 'Backend offline — start the server with bash scripts/startAutopilot.sh'
+                        : 'Auto-pilot will track new picks at 09:00 IST on the next weekday. Or run a scan now to see fresh candidates in the Today tab.')
+                    : (isLive === false
+                        ? 'Start the backend server and click Scan to discover live ETF setups.'
+                        : 'Market may be closed or no ETF setups meet criteria. Try during market hours (9:15 AM – 3:30 PM IST).')}
                 </div>
                 <button className="btn-scan" style={{ marginTop: '20px' }} onClick={() => runScan(false)} disabled={scanning}>
                   {scanning ? <span className="spinner" /> : <Search size={16} />} {scanning ? 'Scanning…' : `Scan ${scanMode === 'etf' ? 'ETFs' : 'Market'}`}
