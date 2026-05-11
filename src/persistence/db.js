@@ -85,6 +85,8 @@ CREATE TABLE IF NOT EXISTS positions (
   trail_active      INTEGER NOT NULL DEFAULT 0,
   be_moved          INTEGER NOT NULL DEFAULT 0,
   partial_taken     INTEGER NOT NULL DEFAULT 0,
+  prev_close        REAL,    -- previous trading day's close (for "today's P&L" calc)
+  day_change_pct    REAL,    -- LTP % change vs prev_close (broker-app style)
   FOREIGN KEY (trade_id) REFERENCES trades(id) ON DELETE CASCADE
 );
 
@@ -229,6 +231,18 @@ CREATE INDEX IF NOT EXISTS idx_bt_trades_symbol ON backtest_trades(symbol);
 `);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Idempotent migrations — for tables created by earlier versions
+// ─────────────────────────────────────────────────────────────────────────────
+function safeAlter(sql) {
+  try { db.exec(sql); } catch (e) {
+    // ignore "duplicate column" errors — migration already applied
+    if (!/duplicate column/i.test(e.message)) console.warn('[db migration]', e.message);
+  }
+}
+safeAlter(`ALTER TABLE positions ADD COLUMN prev_close REAL`);
+safeAlter(`ALTER TABLE positions ADD COLUMN day_change_pct REAL`);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PREPARED STATEMENTS — TRADES
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -282,8 +296,8 @@ SELECT * FROM trades WHERE status = 'closed' AND mode = ? ORDER BY exit_date DES
 // ─────────────────────────────────────────────────────────────────────────────
 
 const upsertPositionStmt = db.prepare(`
-INSERT INTO positions (trade_id, last_price, last_price_at, unrealized_pnl, unrealized_pct, highest_close, trail_active, be_moved, partial_taken)
-VALUES (@trade_id, @last_price, @last_price_at, @unrealized_pnl, @unrealized_pct, @highest_close, @trail_active, @be_moved, @partial_taken)
+INSERT INTO positions (trade_id, last_price, last_price_at, unrealized_pnl, unrealized_pct, highest_close, trail_active, be_moved, partial_taken, prev_close, day_change_pct)
+VALUES (@trade_id, @last_price, @last_price_at, @unrealized_pnl, @unrealized_pct, @highest_close, @trail_active, @be_moved, @partial_taken, @prev_close, @day_change_pct)
 ON CONFLICT(trade_id) DO UPDATE SET
   last_price     = excluded.last_price,
   last_price_at  = excluded.last_price_at,
@@ -292,7 +306,9 @@ ON CONFLICT(trade_id) DO UPDATE SET
   highest_close  = MAX(positions.highest_close, excluded.highest_close),
   trail_active   = excluded.trail_active,
   be_moved       = excluded.be_moved,
-  partial_taken  = excluded.partial_taken
+  partial_taken  = excluded.partial_taken,
+  prev_close     = COALESCE(excluded.prev_close, positions.prev_close),
+  day_change_pct = COALESCE(excluded.day_change_pct, positions.day_change_pct)
 `);
 
 const getPositionStmt = db.prepare(`SELECT * FROM positions WHERE trade_id = ?`);
@@ -491,6 +507,8 @@ export const positionsRepo = {
       trail_active:   position.trailActive ? 1 : 0,
       be_moved:       position.beMoved ? 1 : 0,
       partial_taken:  position.partialTaken ? 1 : 0,
+      prev_close:     position.prevClose ?? null,
+      day_change_pct: position.dayChangePct ?? null,
     });
   },
   get(tradeId) { return getPositionStmt.get(tradeId); },

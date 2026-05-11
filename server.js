@@ -598,6 +598,87 @@ app.get('/api/positions/cards', (req, res) => {
 });
 
 /**
+ * GET /api/equity/today — today's simple P&L summary
+ *
+ * Returns broker-app-style "today's P&L" that matches what your trading
+ * platform shows:
+ *   - dayPnlOpen:    Σ (last_price − prev_close) × quantity over open positions
+ *   - dayPnlClosed:  Σ realized P&L of trades closed today
+ *   - dayPnlTotal:   dayPnlOpen + dayPnlClosed
+ *   - dayPnlPct:     dayPnlTotal as % of deployed capital
+ *
+ * If a position has no prev_close yet (just opened today, never had MTM
+ * during a prior session), it falls back to entry price → 0 contribution.
+ */
+app.get('/api/equity/today', (req, res) => {
+  const mode = req.query.mode === 'live' ? 'live' : 'paper';
+  const capital = parseInt(req.query.capital || CONFIG.TOTAL_CAPITAL, 10);
+
+  // Open positions with their day-change data
+  const positions = listOpenPositions(mode);
+  let dayPnlOpen = 0;
+  let positionsWithDayData = 0;
+  const breakdown = [];
+
+  for (const p of positions) {
+    const pos = db.prepare(`SELECT prev_close, day_change_pct FROM positions WHERE trade_id = ?`).get(p.id);
+    const prevClose = pos?.prev_close;
+    const lastPrice = p.lastPrice;
+    let dayContribution = 0;
+    let dayChangePct = pos?.day_change_pct;
+    if (prevClose && lastPrice) {
+      dayContribution = (lastPrice - prevClose) * p.quantity;
+      if (dayChangePct == null && prevClose > 0) {
+        dayChangePct = ((lastPrice - prevClose) / prevClose) * 100;
+      }
+      positionsWithDayData++;
+    }
+    dayPnlOpen += dayContribution;
+    breakdown.push({
+      symbol:       p.symbol,
+      lastPrice:    lastPrice,
+      prevClose:    prevClose,
+      dayChangePct: dayChangePct != null ? Math.round(dayChangePct * 100) / 100 : null,
+      dayPnl:       Math.round(dayContribution * 100) / 100,
+      quantity:     p.quantity,
+    });
+  }
+
+  // Closed today — exit_date matches today
+  const today = new Date().toISOString().slice(0, 10);
+  const closedToday = db.prepare(
+    `SELECT realized_pnl FROM trades
+     WHERE status='closed' AND mode = ? AND substr(exit_date, 1, 10) = ?`
+  ).all(mode, today);
+  const dayPnlClosed = closedToday.reduce((s, t) => s + (t.realized_pnl || 0), 0);
+
+  const dayPnlTotal = dayPnlOpen + dayPnlClosed;
+  const deployedCapital = positions.reduce((s, p) => s + (p.capital || 0), 0);
+  const dayPnlPct = deployedCapital > 0 ? (dayPnlTotal / deployedCapital) * 100 : 0;
+  const dayPnlPctCapital = capital > 0 ? (dayPnlTotal / capital) * 100 : 0;
+
+  // Unrealized "since entry" for context (different from day P&L)
+  const unrealizedTotal = positions.reduce((s, p) => s + (p.unrealizedPnl || 0), 0);
+
+  res.json({
+    date:              today,
+    mode,
+    capital,
+    deployedCapital,
+    positionCount:     positions.length,
+    positionsWithDayData,
+    dayPnlOpen:        Math.round(dayPnlOpen * 100) / 100,
+    dayPnlClosed:      Math.round(dayPnlClosed * 100) / 100,
+    dayPnlTotal:       Math.round(dayPnlTotal * 100) / 100,
+    dayPnlPct:         Math.round(dayPnlPct * 100) / 100,            // % of deployed
+    dayPnlPctCapital:  Math.round(dayPnlPctCapital * 100) / 100,     // % of total capital
+    unrealizedTotal:   Math.round(unrealizedTotal * 100) / 100,
+    closedTodayCount:  closedToday.length,
+    breakdown,
+  });
+});
+
+/**
  * GET /api/portfolio/live — aggregate paper portfolio summary from DB
  */
 app.get('/api/portfolio/live', (req, res) => {

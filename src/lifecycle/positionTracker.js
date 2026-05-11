@@ -131,21 +131,35 @@ export function closePosition(tradeId, exitReason, exitPrice, exitDate = null) {
 
 /**
  * Fetch latest price for a symbol (Angel One LTP first, Yahoo fallback).
- * Returns { price, source, fetchedAt } or null.
+ * Returns { price, prevClose, dayChangePct, source, fetchedAt } or null.
+ * prevClose = previous trading day's close (Angel One's `close` field is
+ * the prior session close, broker-app style — used for "today's P&L").
  */
 export async function fetchLastPrice(symbol) {
   if (USE_ANGELONE) {
     try {
       const ltp = await fetchAngelOneLTP(symbol);
       if (ltp?.currentPrice) {
-        return { price: ltp.currentPrice, source: 'angelone', fetchedAt: new Date().toISOString() };
+        return {
+          price:         ltp.currentPrice,
+          prevClose:     ltp.close ?? null,
+          dayChangePct:  ltp.changePercent ?? null,
+          source:        'angelone',
+          fetchedAt:     new Date().toISOString(),
+        };
       }
     } catch (_) { /* fall through */ }
   }
   try {
     const q = await yahooFinance.quote(`${symbol}.NS`);
     if (q?.regularMarketPrice) {
-      return { price: q.regularMarketPrice, source: 'yahoo', fetchedAt: new Date().toISOString() };
+      return {
+        price:        q.regularMarketPrice,
+        prevClose:    q.regularMarketPreviousClose ?? null,
+        dayChangePct: q.regularMarketChangePercent ?? null,
+        source:       'yahoo',
+        fetchedAt:    new Date().toISOString(),
+      };
     }
   } catch (_) {}
   return null;
@@ -181,9 +195,11 @@ export async function markAllToMarket(mode = 'paper') {
       trailActive:   pos.trail_active === 1,
       beMoved:       pos.be_moved === 1,
       partialTaken:  pos.partial_taken === 1,
+      prevClose:     lp.prevClose,         // ← captured for Day's P&L widget
+      dayChangePct:  lp.dayChangePct,      // ← broker-app style day-change
     });
 
-    summaries.push(summarize(t, { ...pos, last_price: lp.price, highest_close: newHighest, unrealized_pnl: unrealizedPnl, unrealized_pct: unrealizedPct }));
+    summaries.push(summarize(t, { ...pos, last_price: lp.price, highest_close: newHighest, unrealized_pnl: unrealizedPnl, unrealized_pct: unrealizedPct, prev_close: lp.prevClose, day_change_pct: lp.dayChangePct }));
   }
   return summaries;
 }

@@ -9,6 +9,7 @@ import PortfolioSummary from './components/PortfolioSummary.jsx';
 import MarketOverview from './components/MarketOverview.jsx';
 import AlertPanel, { generateAlerts } from './components/AlertPanel.jsx';
 import RegimePanel from './components/RegimePanel.jsx';
+import DailyPnLWidget from './components/DailyPnLWidget.jsx';
 
 const LivePositionsTab = React.lazy(() => import('./components/LivePositionsTab.jsx'));
 const BacktestsTab     = React.lazy(() => import('./components/BacktestsTab.jsx'));
@@ -491,6 +492,7 @@ export default function App() {
               <>{[1, 2].map(i => <div key={i} className="loading-skeleton skeleton-sidebar" />)}</>
             ) : (
               <>
+                <DailyPnLWidget capital={capital} />
                 <PortfolioSummary portfolio={activePortfolio} capital={capital} onCapitalChange={handleCapitalChange} />
                 <RegimePanel />
                 <MarketOverview marketData={marketData} />
