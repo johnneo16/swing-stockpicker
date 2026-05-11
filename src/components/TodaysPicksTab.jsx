@@ -44,7 +44,10 @@ function pickToCard(p) {
  *
  * This is the main "set it and forget it" view.
  */
-export default function TodaysPicksTab() {
+export default function TodaysPicksTab({ activeClass = 'stocks' }) {
+  // Normalize the prop to the DB asset_class values used in queries
+  const assetClassParam = activeClass === 'etf' ? 'etf' : 'stock';
+
   const [picks, setPicks]       = useState([]);
   const [scheduler, setSched]   = useState(null);
   const [logs, setLogs]         = useState([]);
@@ -55,7 +58,7 @@ export default function TodaysPicksTab() {
   const loadAll = useCallback(async () => {
     try {
       const [picksRes, statusRes, logsRes] = await Promise.all([
-        fetch('/api/picks/today').then(r => r.json()),
+        fetch(`/api/picks/today?assetClass=${assetClassParam}`).then(r => r.json()),
         fetch('/api/scheduler/status').then(r => r.json()),
         fetch('/api/scheduler/log?limit=20').then(r => r.json()),
       ]);
@@ -64,7 +67,7 @@ export default function TodaysPicksTab() {
       setLogs(logsRes.runs || []);
     } catch (e) { setError(e.message); }
     setLoading(false);
-  }, []);
+  }, [assetClassParam]);
 
   useEffect(() => {
     loadAll();
@@ -145,11 +148,11 @@ export default function TodaysPicksTab() {
             <span style={{ color: 'var(--text-muted)' }}>·</span>
             <button
               className="btn-secondary"
-              onClick={() => runJob('pre-market')}
-              disabled={busyJob === 'pre-market'}
+              onClick={() => runJob(assetClassParam === 'etf' ? 'pre-market-etf' : 'pre-market')}
+              disabled={busyJob === 'pre-market' || busyJob === 'pre-market-etf'}
               style={{ padding: '4px 10px', fontSize: '0.75rem' }}
             >
-              {busyJob === 'pre-market' ? <span className="spinner"/> : <Play size={12}/>} Run Pre-Market Now
+              {(busyJob === 'pre-market' || busyJob === 'pre-market-etf') ? <span className="spinner"/> : <Play size={12}/>} Run {assetClassParam === 'etf' ? 'ETF ' : ''}Pre-Market Now
             </button>
           </div>
         </div>

@@ -188,7 +188,23 @@ body::before {
   flex-shrink: 0;
 }
 
-/* === Mode Toggle (Stocks / ETFs) === */
+/* === Asset-class color identity ===
+   stocks → cyan/green (primary engine)
+   etf    → violet     (passive sector exposure)
+   commodity → amber   (future) */
+:root {
+  --asset-stock:    var(--accent-indigo);   /* neon green */
+  --asset-stock-bg: rgba(0, 230, 118, 0.10);
+  --asset-stock-border: rgba(0, 230, 118, 0.35);
+  --asset-etf:      #a78bfa;                 /* violet */
+  --asset-etf-bg:   rgba(167, 139, 250, 0.10);
+  --asset-etf-border: rgba(167, 139, 250, 0.35);
+  --asset-commodity: #fbbf24;                /* amber */
+  --asset-commodity-bg: rgba(251, 191, 36, 0.10);
+  --asset-commodity-border: rgba(251, 191, 36, 0.35);
+}
+
+/* === Mode Toggle (Stocks / ETFs / [future: Commodities]) === */
 .mode-toggle {
   display: flex;
   gap: 2px;
@@ -196,30 +212,65 @@ body::before {
   background: var(--bg-glass);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
+  position: relative;
 }
 
 .mode-btn {
-  padding: 7px 18px;
+  padding: 7px 16px;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-muted);
   font-family: var(--font-sans);
-  font-size: 0.82rem;
-  font-weight: 500;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   cursor: pointer;
   transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .mode-btn:hover {
   color: var(--text-secondary);
 }
 
+/* Asset-class-aware active state — each mode glows in its own color */
+.mode-btn.active[data-class="stocks"] {
+  background: var(--asset-stock-bg);
+  color: var(--asset-stock);
+  box-shadow: 0 0 0 1px var(--asset-stock-border), 0 0 12px -2px var(--asset-stock-border);
+}
+.mode-btn.active[data-class="etf"] {
+  background: var(--asset-etf-bg);
+  color: var(--asset-etf);
+  box-shadow: 0 0 0 1px var(--asset-etf-border), 0 0 12px -2px var(--asset-etf-border);
+}
+.mode-btn.active[data-class="commodity"] {
+  background: var(--asset-commodity-bg);
+  color: var(--asset-commodity);
+  box-shadow: 0 0 0 1px var(--asset-commodity-border), 0 0 12px -2px var(--asset-commodity-border);
+}
+/* Fallback for legacy markup without data-class */
 .mode-btn.active {
-  background: rgba(99, 102, 241, 0.15);
-  color: var(--accent-indigo);
+  background: var(--asset-stock-bg);
+  color: var(--asset-stock);
   font-weight: 600;
 }
+
+/* Subtle indicator dot inside each mode-btn */
+.mode-btn::before {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.4;
+  transition: opacity var(--transition-fast);
+}
+.mode-btn.active::before { opacity: 1; }
 
 /* === Header — 3-zone layout === */
 .header {

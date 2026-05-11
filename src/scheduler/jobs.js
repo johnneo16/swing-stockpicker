@@ -49,7 +49,12 @@ function isMarketHoliday() {
 export async function jobPreMarket(ctx = {}) {
   if (isMarketHoliday()) return { ok: true, message: 'Market closed (weekend)', detail: { skipped: true } };
 
-  const { runScan, capital = CONFIG.TOTAL_CAPITAL, autoTrack = true } = ctx;
+  const {
+    runScan,
+    capital = CONFIG.TOTAL_CAPITAL,
+    autoTrack = true,
+    assetClass = 'stock',           // 'stock' | 'etf' (commodities future)
+  } = ctx;
   if (!runScan) return { ok: false, message: 'runScan not provided to job' };
 
   // 1. Refresh regime + earnings calendar in parallel — fresh data for filters
@@ -58,11 +63,12 @@ export async function jobPreMarket(ctx = {}) {
     refreshEarningsCalendar({ daysAhead: 14 }).catch(() => ({ kept: 0 })),
   ]);
 
-  // 2. Snapshot portfolio state before scan
+  // 2. Snapshot portfolio state before scan (filtered by asset class —
+  //    stocks and ETFs each get their own MAX_CONCURRENT_TRADES bucket)
   const today = todayISO();
-  const existingOpen = listOpenPositions('paper');
+  const existingOpen = listOpenPositions('paper', assetClass);
   const existingSymbols = new Set(existingOpen.map(p => p.symbol));
-  const portfolio = portfolioSummary('paper', capital);
+  const portfolio = portfolioSummary('paper', capital, assetClass);
 
   const slotsAvailable = CONFIG.MAX_CONCURRENT_TRADES - existingOpen.length;
   let cashAvailable = portfolio.cashRemaining;
@@ -133,7 +139,7 @@ export async function jobPreMarket(ctx = {}) {
     let tradeId = null;
     if (!blockedReason && autoTrack) {
       try {
-        const opened = openPosition(t, 'paper', { totalCapital: capital });
+        const opened = openPosition(t, 'paper', { totalCapital: capital, assetClass });
         tradeId = opened.id;
         cashAvailable -= t.capitalRequired; // decrement local mirror
       } catch (e) {
@@ -151,6 +157,7 @@ export async function jobPreMarket(ctx = {}) {
       rr: t.riskRewardRatio, estimatedDays: t.estimatedDays,
       regime: regime?.regime || null, earningsFlag,
       blockedReason, autoTracked: tradeId !== null, tradeId, payload: t,
+      assetClass,
     });
 
     if (tradeId) {
@@ -186,8 +193,9 @@ export async function jobPreMarket(ctx = {}) {
 
   return {
     ok: true,
-    message,
+    message: `[${assetClass.toUpperCase()}] ${message}`,
     detail: {
+      assetClass,
       regime: regime?.regime,
       bias,
       slotsAvailable,
@@ -199,6 +207,21 @@ export async function jobPreMarket(ctx = {}) {
       earningsKept: earningsRefresh?.kept,
     },
   };
+}
+
+/**
+ * ETF variant of jobPreMarket — same logic, different scanner + asset_class tag.
+ * The orchestrator passes `runEtfScan` in ctx; this wrapper rewires the entry
+ * to share the bulk of the pre-market pipeline (regime/earnings/filters/capital
+ * checks) without duplication.
+ */
+export async function jobPreMarketETF(ctx = {}) {
+  const { runEtfScan, ...rest } = ctx;
+  return jobPreMarket({
+    ...rest,
+    runScan: runEtfScan,
+    assetClass: 'etf',
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

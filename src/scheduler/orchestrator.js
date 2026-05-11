@@ -18,7 +18,7 @@
 import cron from 'node-cron';
 import { schedulerRepo } from '../persistence/db.js';
 import {
-  jobPreMarket, jobMarkToMarket, jobExitCycle,
+  jobPreMarket, jobPreMarketETF, jobMarkToMarket, jobExitCycle,
   jobEodSnapshot, jobEarningsRefresh, jobWeeklyBacktest,
   jobRiskKillswitch, jobStaleTradeAudit, jobDailySummary,
 } from './jobs.js';
@@ -34,9 +34,16 @@ function buildJobs(ctx) {
     {
       id: 'pre-market',
       cron: '0 9 * * 1-5',
-      description: 'Generate today\'s picks at 09:00 IST and auto-track survivors as paper trades',
+      description: 'Generate today\'s STOCK picks at 09:00 IST and auto-track survivors',
       default: true,
       handler: () => jobPreMarket(ctx),
+    },
+    {
+      id: 'pre-market-etf',
+      cron: '5 9 * * 1-5',                 // 09:05 IST (5-min stagger from stocks)
+      description: 'Generate today\'s ETF picks at 09:05 IST and auto-track survivors',
+      default: true,
+      handler: () => jobPreMarketETF(ctx),
     },
     {
       id: 'auto-scan',

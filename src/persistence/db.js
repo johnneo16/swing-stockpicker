@@ -241,6 +241,12 @@ function safeAlter(sql) {
 }
 safeAlter(`ALTER TABLE positions ADD COLUMN prev_close REAL`);
 safeAlter(`ALTER TABLE positions ADD COLUMN day_change_pct REAL`);
+// asset_class: 'stock' | 'etf' | 'commodity' — defaults to 'stock' for backfill compatibility
+safeAlter(`ALTER TABLE trades ADD COLUMN asset_class TEXT DEFAULT 'stock'`);
+safeAlter(`ALTER TABLE daily_picks ADD COLUMN asset_class TEXT DEFAULT 'stock'`);
+safeAlter(`ALTER TABLE backtest_runs ADD COLUMN asset_class TEXT DEFAULT 'stock'`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_trades_asset_status ON trades(asset_class, status, mode);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_picks_date_class ON daily_picks(pick_date, asset_class);`);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PREPARED STATEMENTS — TRADES
@@ -248,12 +254,12 @@ safeAlter(`ALTER TABLE positions ADD COLUMN day_change_pct REAL`);
 
 const insertTradeStmt = db.prepare(`
 INSERT INTO trades (
-  symbol, name, sector, setup_type, mode,
+  symbol, name, sector, setup_type, mode, asset_class,
   entry_date, entry_price, initial_stop, target_price, current_stop,
   quantity, capital, risk_amount, confidence, rr_planned, est_days,
   metadata
 ) VALUES (
-  @symbol, @name, @sector, @setup_type, @mode,
+  @symbol, @name, @sector, @setup_type, @mode, @asset_class,
   @entry_date, @entry_price, @initial_stop, @target_price, @current_stop,
   @quantity, @capital, @risk_amount, @confidence, @rr_planned, @est_days,
   @metadata
@@ -279,6 +285,9 @@ UPDATE trades SET current_stop = @stop, updated_at = datetime('now') WHERE id = 
 
 const getOpenTradesStmt = db.prepare(`
 SELECT * FROM trades WHERE status = 'open' AND mode = ? ORDER BY entry_date DESC
+`);
+const getOpenTradesByClassStmt = db.prepare(`
+SELECT * FROM trades WHERE status = 'open' AND mode = ? AND asset_class = ? ORDER BY entry_date DESC
 `);
 
 const getTradeByIdStmt = db.prepare(`SELECT * FROM trades WHERE id = ?`);
@@ -377,6 +386,7 @@ export const tradesRepo = {
       sector: trade.sector || null,
       setup_type: trade.setupType || null,
       mode: trade.mode || 'paper',
+      asset_class: trade.assetClass || 'stock',
       entry_date: trade.entryDate || new Date().toISOString(),
       entry_price: trade.entryPrice,
       initial_stop: trade.stopLoss,
@@ -412,7 +422,11 @@ export const tradesRepo = {
   },
 
   updateStop(id, stop) { updateStopStmt.run({ id, stop }); },
-  getOpen(mode = 'paper') { return getOpenTradesStmt.all(mode); },
+  getOpen(mode = 'paper', assetClass = null) {
+    return assetClass
+      ? getOpenTradesByClassStmt.all(mode, assetClass)
+      : getOpenTradesStmt.all(mode);
+  },
   getById(id) { return getTradeByIdStmt.get(id); },
   getOpenBySymbol(symbol, mode = 'paper') { return getTradeBySymbolOpenStmt.get(symbol, mode); },
   getRecentClosed(mode = 'paper', limit = 50) { return getClosedTradesStmt.all(mode, limit); },
@@ -659,20 +673,24 @@ export const backtestRepo = {
 const upsertPickStmt = db.prepare(`
 INSERT INTO daily_picks (pick_date, symbol, name, sector, setup_type, confidence,
   entry_price, stop_loss, target_price, rr, est_days, regime, earnings_flag,
-  blocked_reason, auto_tracked, trade_id, payload_json)
+  blocked_reason, auto_tracked, trade_id, payload_json, asset_class)
 VALUES (@pick_date, @symbol, @name, @sector, @setup_type, @confidence,
   @entry_price, @stop_loss, @target_price, @rr, @est_days, @regime, @earnings_flag,
-  @blocked_reason, @auto_tracked, @trade_id, @payload_json)
+  @blocked_reason, @auto_tracked, @trade_id, @payload_json, @asset_class)
 ON CONFLICT(pick_date, symbol) DO UPDATE SET
   confidence = excluded.confidence, entry_price = excluded.entry_price,
   stop_loss = excluded.stop_loss, target_price = excluded.target_price,
   rr = excluded.rr, regime = excluded.regime, earnings_flag = excluded.earnings_flag,
   blocked_reason = excluded.blocked_reason, auto_tracked = excluded.auto_tracked,
-  trade_id = excluded.trade_id, payload_json = excluded.payload_json
+  trade_id = excluded.trade_id, payload_json = excluded.payload_json,
+  asset_class = excluded.asset_class
 `);
 
 const getPicksByDateStmt = db.prepare(
   `SELECT * FROM daily_picks WHERE pick_date = ? ORDER BY confidence DESC`
+);
+const getPicksByDateAndClassStmt = db.prepare(
+  `SELECT * FROM daily_picks WHERE pick_date = ? AND asset_class = ? ORDER BY confidence DESC`
 );
 
 const getRecentPicksStmt = db.prepare(
@@ -700,13 +718,20 @@ export const picksRepo = {
       auto_tracked: pick.autoTracked ? 1 : 0,
       trade_id:     pick.tradeId ?? null,
       payload_json: JSON.stringify(pick.payload || {}),
+      asset_class:  pick.assetClass || 'stock',
     });
   },
-  forDate(date) { return getPicksByDateStmt.all(date); },
+  forDate(date, assetClass = null) {
+    return assetClass
+      ? getPicksByDateAndClassStmt.all(date, assetClass)
+      : getPicksByDateStmt.all(date);
+  },
   recentDays(limit = 14) { return getRecentPicksStmt.all(limit); },
-  forToday() {
+  forToday(assetClass = null) {
     const today = new Date().toISOString().slice(0, 10);
-    return getPicksByDateStmt.all(today);
+    return assetClass
+      ? getPicksByDateAndClassStmt.all(today, assetClass)
+      : getPicksByDateStmt.all(today);
   },
 };
 

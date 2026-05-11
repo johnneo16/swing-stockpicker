@@ -11,7 +11,9 @@ const API = (path) => path; // same-origin
  * Lists open positions from /api/positions with mark-to-market P&L,
  * lets the user refresh prices + run the exit cycle.
  */
-export default function LivePositionsTab({ capital = 50000 }) {
+export default function LivePositionsTab({ capital = 50000, activeClass = 'stocks' }) {
+  // Map UI scanMode → DB asset_class
+  const ac = activeClass === 'etf' ? 'etf' : 'stock';
   const [positions, setPositions] = useState([]);
   const [portfolio, setPortfolio] = useState(null);
   const [history, setHistory]     = useState([]);
@@ -26,10 +28,10 @@ export default function LivePositionsTab({ capital = 50000 }) {
     try {
       setError(null);
       const [posRes, portRes, histRes, statsRes] = await Promise.all([
-        fetch(API('/api/positions?mode=paper')).then(r => r.json()),
-        fetch(API(`/api/portfolio/live?mode=paper&capital=${capital}`)).then(r => r.json()),
-        fetch(API('/api/trades/history?mode=paper&limit=20')).then(r => r.json()),
-        fetch(API('/api/journal/stats?mode=paper')).then(r => r.json()),
+        fetch(API(`/api/positions?mode=paper&assetClass=${ac}`)).then(r => r.json()),
+        fetch(API(`/api/portfolio/live?mode=paper&assetClass=${ac}&capital=${capital}`)).then(r => r.json()),
+        fetch(API(`/api/trades/history?mode=paper&assetClass=${ac}&limit=20`)).then(r => r.json()),
+        fetch(API(`/api/journal/stats?mode=paper`)).then(r => r.json()),
       ]);
       setPositions(posRes.positions || []);
       setPortfolio(portRes);
@@ -54,7 +56,7 @@ export default function LivePositionsTab({ capital = 50000 }) {
       }).then(r => r.json());
       setPositions(r.positions || []);
       // Refresh portfolio summary too
-      const port = await fetch(API(`/api/portfolio/live?mode=paper&capital=${capital}`)).then(r => r.json());
+      const port = await fetch(API(`/api/portfolio/live?mode=paper&assetClass=${ac}&capital=${capital}`)).then(r => r.json());
       setPortfolio(port);
     } catch (e) { setError(e.message); }
     setRefreshing(false);

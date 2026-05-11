@@ -113,7 +113,8 @@ export default function App() {
   });
 
   const [trades, setTrades] = useState([]);        // raw scan results (used to seed alerts only now)
-  const [holdings, setHoldings] = useState([]);    // currently-held paper positions (Dashboard source)
+  const [holdings, setHoldings] = useState([]);    // stock paper positions (Dashboard source when mode=stocks)
+  const [etfHoldings, setEtfHoldings] = useState([]); // ETF paper positions (Dashboard source when mode=etf)
   const [etfTrades, setEtfTrades] = useState([]);
   const [portfolio, setPortfolio] = useState(() => makeFallbackPortfolio(capital));
   const [etfPortfolio, setEtfPortfolio] = useState(null);
@@ -136,9 +137,10 @@ export default function App() {
   const autoRefreshTimer = useRef(null);
   const countdownTimer = useRef(null);
 
-  // Dashboard now sources from currently-held positions in stocks mode
-  // (auto-removes closed trades). ETF mode still uses scan results.
-  const rawTrades = scanMode === 'stocks' ? holdings : etfTrades;
+  // Dashboard sources from currently-held positions, filtered by asset class.
+  // When the user toggles Stocks/ETFs, the corresponding holdings render.
+  // Closed positions auto-disappear from the dashboard.
+  const rawTrades = scanMode === 'stocks' ? holdings : etfHoldings;
   const activeTrades = highConvictionOnly ? rawTrades.filter(t => (t.confidenceScore || 0) >= 60) : rawTrades;
   const activePortfolio = scanMode === 'stocks' ? portfolio : (etfPortfolio || portfolio);
 
@@ -192,28 +194,37 @@ export default function App() {
   // Called on mount, after every scan, and on a 30s auto-poll while open.
   const loadHoldings = useCallback(async () => {
     try {
-      const [cardsRes, portRes] = await Promise.all([
-        fetch('/api/positions/cards?mode=paper').then(r => r.json()),
-        fetch(`/api/portfolio/live?mode=paper&capital=${capital}`).then(r => r.json()),
+      // Fetch stock + ETF holdings + their portfolio summaries in parallel
+      const [stockCards, etfCards, stockPort, etfPort] = await Promise.all([
+        fetch('/api/positions/cards?mode=paper&assetClass=stock').then(r => r.json()),
+        fetch('/api/positions/cards?mode=paper&assetClass=etf').then(r => r.json()),
+        fetch(`/api/portfolio/live?mode=paper&assetClass=stock&capital=${capital}`).then(r => r.json()),
+        fetch(`/api/portfolio/live?mode=paper&assetClass=etf&capital=${capital}`).then(r => r.json()),
       ]);
-      setHoldings(cardsRes.cards || []);
-      // Map portfolio/live response to the shape PortfolioSummary expects
-      if (portRes && !portRes.error) {
-        setPortfolio({
-          totalCapital:        portRes.totalCapital ?? capital,
-          capitalDeployed:     portRes.capitalDeployed ?? 0,
-          remainingCash:       portRes.cashRemaining ?? capital,
-          cashReserveTarget:   Math.round(capital * 0.15),
-          totalRiskExposure:   portRes.openRisk ?? 0,
-          riskExposurePercent: portRes.initialRiskPct ?? 0,
-          activeTradeCount:    portRes.activePositions ?? 0,
-          maxTrades:           5,
-          deploymentPercent:   portRes.deploymentPct ?? 0,
-          sectorDistribution:  portRes.sectorDistribution ?? {},
-          unrealizedPnl:       portRes.unrealizedPnl ?? 0,
-          unrealizedPct:       portRes.unrealizedPct ?? 0,
-        });
-      }
+
+      setHoldings(stockCards.cards || []);
+      setEtfHoldings(etfCards.cards || []);
+
+      // Convert portfolio/live response → shape PortfolioSummary expects
+      const toPortfolio = (r) => r && !r.error ? ({
+        totalCapital:        r.totalCapital ?? capital,
+        capitalDeployed:     r.capitalDeployed ?? 0,
+        remainingCash:       r.cashRemaining ?? capital,
+        cashReserveTarget:   Math.round(capital * 0.15),
+        totalRiskExposure:   r.openRisk ?? 0,
+        riskExposurePercent: r.initialRiskPct ?? 0,
+        activeTradeCount:    r.activePositions ?? 0,
+        maxTrades:           5,
+        deploymentPercent:   r.deploymentPct ?? 0,
+        sectorDistribution:  r.sectorDistribution ?? {},
+        unrealizedPnl:       r.unrealizedPnl ?? 0,
+        unrealizedPct:       r.unrealizedPct ?? 0,
+      }) : null;
+
+      const stockP = toPortfolio(stockPort);
+      const etfP   = toPortfolio(etfPort);
+      if (stockP) setPortfolio(stockP);
+      if (etfP)   setEtfPortfolio(etfP);
       setIsLive(true);
     } catch (err) {
       // Holdings load failure isn't fatal — just keep what we have
@@ -337,19 +348,23 @@ export default function App() {
           </div>
         </div>
 
-        {/* Zone 2: Mode Toggle */}
-        <div className="mode-toggle">
+        {/* Zone 2: Mode Toggle — color-coded by asset class */}
+        <div className="mode-toggle" role="group" aria-label="Asset class">
           <button
+            data-class="stocks"
             className={`mode-btn ${scanMode === 'stocks' ? 'active' : ''}`}
             onClick={() => handleScanModeChange('stocks')}
+            aria-pressed={scanMode === 'stocks'}
           >
-            <BarChart3 size={14} className="inline-icon" /> Stocks
+            Stocks
           </button>
           <button
+            data-class="etf"
             className={`mode-btn ${scanMode === 'etf' ? 'active' : ''}`}
             onClick={() => handleScanModeChange('etf')}
+            aria-pressed={scanMode === 'etf'}
           >
-            <Package size={14} className="inline-icon" /> ETFs
+            ETFs
           </button>
         </div>
 
@@ -443,7 +458,7 @@ export default function App() {
       {/* ============ TODAY'S PICKS TAB ============ */}
       {activeTab === 'today' && (
         <React.Suspense fallback={<div className="loading-skeleton skeleton-card" />}>
-          <TodaysPicksTab />
+          <TodaysPicksTab activeClass={scanMode} />
         </React.Suspense>
       )}
 
@@ -492,7 +507,7 @@ export default function App() {
               <>{[1, 2].map(i => <div key={i} className="loading-skeleton skeleton-sidebar" />)}</>
             ) : (
               <>
-                <DailyPnLWidget capital={capital} />
+                <DailyPnLWidget capital={capital} activeClass={scanMode} />
                 <PortfolioSummary portfolio={activePortfolio} capital={capital} onCapitalChange={handleCapitalChange} />
                 <RegimePanel />
                 <MarketOverview marketData={marketData} />
@@ -582,7 +597,7 @@ export default function App() {
       {/* ============ LIVE (Paper Trading) TAB ============ */}
       {activeTab === 'live' && (
         <React.Suspense fallback={<div className="loading-skeleton skeleton-card" />}>
-          <LivePositionsTab capital={capital} />
+          <LivePositionsTab capital={capital} activeClass={scanMode} />
         </React.Suspense>
       )}
 

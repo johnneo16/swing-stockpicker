@@ -321,38 +321,59 @@ app.get('/api/portfolio', (req, res) => {
 });
 
 /**
+ * runEtfScan — core ETF scan (extracted to module scope so the orchestrator
+ * can call it via `runEtfScan` in its context, just like `runScan` for stocks).
+ *
+ * Same signature as runScan: (force, capital, scanOptions) → { trades, ... }
+ * scanOptions: { excludeSymbols, maxResults } — orchestrator uses these for
+ * portfolio-aware backfill (avoid re-suggesting already-open ETFs).
+ */
+async function runEtfScan(force = false, capital = null, scanOptions = {}) {
+  const totalCapital = capital || CONFIG.TOTAL_CAPITAL;
+  const now = Date.now();
+
+  const hasCustomFilters = (scanOptions.excludeSymbols && scanOptions.excludeSymbols.size > 0)
+                       || (scanOptions.maxResults && scanOptions.maxResults !== 5);
+  if (!force && !hasCustomFilters && etfScanCache.data && (now - etfScanCache.timestamp) < etfScanCache.CACHE_TTL) {
+    return { ...etfScanCache.data, cached: true, cachedAt: new Date(etfScanCache.timestamp).toISOString() };
+  }
+
+  console.log(`\n[${new Date().toISOString()}] 🔍 Starting ETF scan...`);
+  const etfData = await batchFetchStocks(ETF_UNIVERSE, 300);
+  console.log(`  📊 Fetched data for ${etfData.length}/${ETF_UNIVERSE.length} ETFs`);
+
+  const scored = etfData.map(d => {
+    try { return scoreStock(d, null, totalCapital); }
+    catch (err) { console.error(`  ❌ Error scoring ETF ${d.symbol}:`, err.message); return null; }
+  }).filter(Boolean);
+
+  const result = rankAndFilterTrades(scored, totalCapital, {
+    maxSectorExposure: 5,
+    maxResults:        scanOptions.maxResults     ?? 5,
+    excludeSymbols:    scanOptions.excludeSymbols ?? new Set(),
+  });
+  console.log(`  ✅ Selected ${result.trades.length} ETF trades`);
+
+  etfScanCache.data = result;
+  etfScanCache.timestamp = now;
+
+  return {
+    ...result,
+    cached: false,
+    scannedAt: new Date().toISOString(),
+    etfsAnalyzed: etfData.length,
+  };
+}
+
+/**
  * GET /api/scan-etf — Run ETF market scan
  */
 app.get('/api/scan-etf', async (req, res) => {
   try {
-    const now = Date.now();
     const force = req.query.refresh === 'true';
     const capital = req.query.capital ? parseInt(req.query.capital, 10) : null;
-    const totalCapital = capital || CONFIG.TOTAL_CAPITAL;
 
-    if (!force && etfScanCache.data && (now - etfScanCache.timestamp) < etfScanCache.CACHE_TTL) {
-      return res.json({ ...etfScanCache.data, cached: true });
-    }
-
-    console.log(`\n[${new Date().toISOString()}] 🔍 Starting ETF scan...`);
-
-    const runEtfScan = async () => {
-      const etfData = await batchFetchStocks(ETF_UNIVERSE, 300);
-      console.log(`  📊 Fetched data for ${etfData.length}/${ETF_UNIVERSE.length} ETFs`);
-
-      const scored = etfData.map(d => {
-        try { return scoreStock(d, null, totalCapital); }
-        catch (err) { console.error(`  ❌ Error scoring ETF ${d.symbol}:`, err.message); return null; }
-      }).filter(Boolean);
-
-      const result = rankAndFilterTrades(scored, totalCapital, { maxSectorExposure: 5 });
-      console.log(`  ✅ Selected ${result.trades.length} ETF trades`);
-      etfScanCache.data = result;
-      etfScanCache.timestamp = now;
-      return { ...result, cached: false, scannedAt: new Date().toISOString(), etfsAnalyzed: etfData.length };
-    };
-
-    const result = await withTimeout(runEtfScan(), SCAN_TIMEOUT_MS)
+    const result = await withTimeout(runEtfScan(force, capital), SCAN_TIMEOUT_MS)
       .catch(err => {
         console.warn('⚠️ ETF scan timeout:', err.message);
         if (etfScanCache.data) return { ...etfScanCache.data, cached: true, timedOut: true };
@@ -428,8 +449,9 @@ app.post('/api/scheduler/killswitch/reset', (req, res) => {
  * GET /api/picks/today — today's curated picks (auto-tracked + blocked)
  */
 app.get('/api/picks/today', (req, res) => {
-  const picks = picksRepo.forToday();
-  res.json({ date: new Date().toISOString().slice(0, 10), picks });
+  const assetClass = req.query.assetClass || null;   // 'stock' | 'etf' | null = all
+  const picks = picksRepo.forToday(assetClass);
+  res.json({ date: new Date().toISOString().slice(0, 10), assetClass, picks });
 });
 
 /**
@@ -481,7 +503,8 @@ app.post('/api/positions/open', (req, res) => {
  */
 app.get('/api/positions', (req, res) => {
   const mode = req.query.mode === 'live' ? 'live' : 'paper';
-  res.json({ mode, positions: listOpenPositions(mode) });
+  const assetClass = req.query.assetClass || null;
+  res.json({ mode, assetClass, positions: listOpenPositions(mode, assetClass) });
 });
 
 /**
@@ -531,7 +554,8 @@ app.post('/api/positions/exit-cycle', async (req, res) => {
  */
 app.get('/api/positions/cards', (req, res) => {
   const mode = req.query.mode === 'live' ? 'live' : 'paper';
-  const positions = listOpenPositions(mode);
+  const assetClass = req.query.assetClass || null;
+  const positions = listOpenPositions(mode, assetClass);
 
   const getPayloadStmt = db.prepare(`
     SELECT payload_json FROM daily_picks
@@ -612,10 +636,11 @@ app.get('/api/positions/cards', (req, res) => {
  */
 app.get('/api/equity/today', (req, res) => {
   const mode = req.query.mode === 'live' ? 'live' : 'paper';
+  const assetClass = req.query.assetClass || null;   // null = combined
   const capital = parseInt(req.query.capital || CONFIG.TOTAL_CAPITAL, 10);
 
-  // Open positions with their day-change data
-  const positions = listOpenPositions(mode);
+  // Open positions with their day-change data (filtered by asset class if given)
+  const positions = listOpenPositions(mode, assetClass);
   let dayPnlOpen = 0;
   let positionsWithDayData = 0;
   const breakdown = [];
@@ -644,12 +669,16 @@ app.get('/api/equity/today', (req, res) => {
     });
   }
 
-  // Closed today — exit_date matches today
+  // Closed today — exit_date matches today (filtered by asset class if given)
   const today = new Date().toISOString().slice(0, 10);
-  const closedToday = db.prepare(
-    `SELECT realized_pnl FROM trades
-     WHERE status='closed' AND mode = ? AND substr(exit_date, 1, 10) = ?`
-  ).all(mode, today);
+  const closedQuery = assetClass
+    ? `SELECT realized_pnl FROM trades
+       WHERE status='closed' AND mode = ? AND asset_class = ? AND substr(exit_date, 1, 10) = ?`
+    : `SELECT realized_pnl FROM trades
+       WHERE status='closed' AND mode = ? AND substr(exit_date, 1, 10) = ?`;
+  const closedToday = assetClass
+    ? db.prepare(closedQuery).all(mode, assetClass, today)
+    : db.prepare(closedQuery).all(mode, today);
   const dayPnlClosed = closedToday.reduce((s, t) => s + (t.realized_pnl || 0), 0);
 
   const dayPnlTotal = dayPnlOpen + dayPnlClosed;
@@ -663,6 +692,7 @@ app.get('/api/equity/today', (req, res) => {
   res.json({
     date:              today,
     mode,
+    assetClass,
     capital,
     deployedCapital,
     positionCount:     positions.length,
@@ -682,9 +712,10 @@ app.get('/api/equity/today', (req, res) => {
  * GET /api/portfolio/live — aggregate paper portfolio summary from DB
  */
 app.get('/api/portfolio/live', (req, res) => {
-  const mode    = req.query.mode === 'live' ? 'live' : 'paper';
-  const capital = parseInt(req.query.capital || CONFIG.TOTAL_CAPITAL, 10);
-  res.json({ mode, ...livePortfolioSummary(mode, capital) });
+  const mode       = req.query.mode === 'live' ? 'live' : 'paper';
+  const assetClass = req.query.assetClass || null;
+  const capital    = parseInt(req.query.capital || CONFIG.TOTAL_CAPITAL, 10);
+  res.json({ mode, assetClass, ...livePortfolioSummary(mode, capital, assetClass) });
 });
 
 /**
@@ -692,8 +723,12 @@ app.get('/api/portfolio/live', (req, res) => {
  */
 app.get('/api/trades/history', (req, res) => {
   const mode  = req.query.mode === 'live' ? 'live' : 'paper';
+  const assetClass = req.query.assetClass || null;
   const limit = Math.min(200, parseInt(req.query.limit || '50', 10));
-  res.json({ mode, trades: tradesRepo.getRecentClosed(mode, limit) });
+  // Filter recent closed by class if requested (db query supports the column)
+  const all = tradesRepo.getRecentClosed(mode, limit * 2);  // over-fetch to allow filter
+  const filtered = assetClass ? all.filter(t => (t.asset_class || 'stock') === assetClass) : all;
+  res.json({ mode, assetClass, trades: filtered.slice(0, limit) });
 });
 
 /**
@@ -884,6 +919,7 @@ app.listen(PORT, () => {
       const { runBacktest } = await import('./src/backtest/engine.js');
       orchestrator.start({
         runScan,
+        runEtfScan,
         capital: CONFIG.TOTAL_CAPITAL,
         runBacktest,
         backtestRepo,

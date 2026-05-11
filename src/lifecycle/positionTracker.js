@@ -44,10 +44,12 @@ export function openPosition(scoredTrade, mode = 'paper', opts = {}) {
 
   const totalCapital = opts.totalCapital || CONFIG.TOTAL_CAPITAL;
   const skipGuards   = opts.skipGuards === true;
+  const assetClass   = opts.assetClass || scoredTrade.assetClass || 'stock';
 
   // ── Layer-2 defense (skippable for migrations / tests) ──────────────────
   if (!skipGuards) {
-    const open = tradesRepo.getOpen(mode);
+    // Each asset class gets its own MAX_CONCURRENT_TRADES bucket
+    const open = tradesRepo.getOpen(mode, assetClass);
 
     // Guard 1: hard cap on concurrent positions
     if (open.length >= CONFIG.MAX_CONCURRENT_TRADES) {
@@ -79,6 +81,7 @@ export function openPosition(scoredTrade, mode = 'paper', opts = {}) {
     sector:           scoredTrade.sector,
     setupType:        scoredTrade.setupType,
     mode,
+    assetClass,
     entryDate:        new Date().toISOString(),
     entryPrice:       scoredTrade.entryPrice,
     stopLoss:         scoredTrade.stopLoss,
@@ -251,16 +254,16 @@ function summarize(trade, position) {
  * Get all open positions (already marked-to-market) without fetching prices.
  * Use after `markAllToMarket` for a cheap UI read.
  */
-export function listOpenPositions(mode = 'paper') {
-  const open = tradesRepo.getOpen(mode);
+export function listOpenPositions(mode = 'paper', assetClass = null) {
+  const open = tradesRepo.getOpen(mode, assetClass);
   return open.map(t => summarize(t, positionsRepo.get(t.id)));
 }
 
 /**
  * Aggregate portfolio view.
  */
-export function portfolioSummary(mode = 'paper', totalCapital = 50000) {
-  const positions = listOpenPositions(mode);
+export function portfolioSummary(mode = 'paper', totalCapital = 50000, assetClass = null) {
+  const positions = listOpenPositions(mode, assetClass);
   const deployed       = positions.reduce((s, p) => s + (p.capital || 0), 0);
   const unrealizedPnl  = positions.reduce((s, p) => s + (p.unrealizedPnl || 0), 0);
   const openRisk       = positions.reduce((s, p) => {
