@@ -4,8 +4,9 @@ import {
   CheckCircle2, AlertTriangle, Activity, ExternalLink, PlayCircle,
 } from 'lucide-react';
 
-const EquityCurveChart       = React.lazy(() => import('./EquityCurveChart.jsx'));
-const PredictedVsActualWidget = React.lazy(() => import('./PredictedVsActualWidget.jsx'));
+const EquityCurveChart         = React.lazy(() => import('./EquityCurveChart.jsx'));
+const PredictedVsActualWidget  = React.lazy(() => import('./PredictedVsActualWidget.jsx'));
+const SetupPerformanceBreakdown = React.lazy(() => import('./SetupPerformanceBreakdown.jsx'));
 
 const API = (path) => path; // same-origin
 
@@ -116,6 +117,13 @@ export default function LivePositionsTab({ capital = 50000, activeClass = 'stock
         </React.Suspense>
         <React.Suspense fallback={<div className="loading-skeleton skeleton-card" style={{ minHeight: 280 }} />}>
           <PredictedVsActualWidget assetClass={ac} />
+        </React.Suspense>
+      </div>
+
+      {/* Setup Performance — third analytics card, full-width below */}
+      <div style={{ marginBottom: 16 }}>
+        <React.Suspense fallback={<div className="loading-skeleton skeleton-card" style={{ minHeight: 280 }} />}>
+          <SetupPerformanceBreakdown assetClass={ac} />
         </React.Suspense>
       </div>
 
