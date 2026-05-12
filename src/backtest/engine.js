@@ -105,7 +105,12 @@ export async function runBacktest(universe, config = {}, progressFn = null) {
 
     // ── Skip if not on rebalance day
     if (dIdx % C.rebalanceEvery !== 0) continue;
-    if (dIdx < C.warmupDays) continue;
+    // NOTE: warmup is enforced at the per-stock level via
+    //   `if (sliceUpToToday.length < C.warmupDays) continue;` below.
+    // We pre-fetch warmupDays + 30 days BEFORE startDate (see fetchStart),
+    // so the inner check has enough data even on day 0 of the window.
+    // Skipping the first warmupDays of the master timeline (as before)
+    // double-counted: it ate the entire window when window <= warmupDays.
 
     // ── Scan: score every tradeable stock as of today
     scanCount++;
