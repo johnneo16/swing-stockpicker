@@ -1,7 +1,14 @@
-import React from 'react';
-import { Globe, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Globe, TrendingUp, TrendingDown, Minus, Calendar } from 'lucide-react';
 
 export default function MarketOverview({ marketData }) {
+  const [calendar, setCalendar] = useState(null);
+  useEffect(() => {
+    fetch('/api/calendar/today').then(r => r.json()).then(setCalendar).catch(() => {});
+    // Refresh hourly — calendar doesn't change often
+    const i = setInterval(() => fetch('/api/calendar/today').then(r => r.json()).then(setCalendar).catch(() => {}), 60 * 60 * 1000);
+    return () => clearInterval(i);
+  }, []);
   if (!marketData) {
     return (
       <div className="card" id="market-overview">
@@ -55,6 +62,25 @@ export default function MarketOverview({ marketData }) {
         <span style={{ display: 'flex', alignItems: 'center' }}>{getMoodIcon()}</span>
         <span className={`mood-value ${moodClass}`}>{marketMood}</span>
       </div>
+
+      {/* Calendar status — today's trading state + next holiday */}
+      {calendar && (
+        <div style={{
+          marginTop: 10,
+          paddingTop: 10,
+          borderTop: '1px solid var(--border-subtle)',
+          fontSize: '0.72rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <Calendar size={11} style={{ color: 'var(--text-muted)' }} />
+            <span style={{ color: 'var(--text-muted)' }}>
+              {calendar.isTradingDay
+                ? <>Today open · next holiday <strong style={{ color: 'var(--warning)' }}>{calendar.upcomingHolidays?.[0]?.name || '—'}</strong> on {calendar.upcomingHolidays?.[0]?.date || '—'}</>
+                : <>Today CLOSED — <strong style={{ color: 'var(--warning)' }}>{calendar.reason === 'holiday' ? calendar.holidayName : calendar.weekday}</strong></>}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

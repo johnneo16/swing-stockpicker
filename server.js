@@ -22,6 +22,7 @@ import {
 import { refreshRegime, getRegime, regimeBias } from './src/intelligence/regimeDetector.js';
 import { orchestrator } from './src/scheduler/orchestrator.js';
 import { picksRepo, schedulerRepo, db } from './src/persistence/db.js';
+import { todayStatus, upcomingHolidays, nextTradingDays } from './src/scheduler/jobs.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -385,6 +386,19 @@ app.get('/api/scan-etf', async (req, res) => {
     console.error('ETF scan error:', error);
     res.status(500).json({ error: 'ETF scan failed', message: error.message });
   }
+});
+
+/**
+ * GET /api/calendar/today — diagnostic: is today a trading day? why/why not?
+ *   Also includes the next 5 trading days + upcoming holidays in next 30 days.
+ */
+app.get('/api/calendar/today', (req, res) => {
+  const status = todayStatus();
+  res.json({
+    ...status,
+    nextTradingDays: nextTradingDays(5),
+    upcomingHolidays: upcomingHolidays(30),
+  });
 });
 
 /**

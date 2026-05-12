@@ -22,13 +22,36 @@ import { CONFIG, getCapitalForClass } from '../engine/riskEngine.js';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
+import { isNonTradingDay, todayStatus, upcomingHolidays, nextTradingDays } from './nseHolidays.js';
+
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
+/**
+ * Returns true if today (IST) is a non-trading day for NSE equity —
+ * weekend OR a scheduled holiday from nseHolidays.js.
+ */
 function isMarketHoliday() {
-  // Best-effort: skip Sat/Sun. Real NSE holiday list could be added later.
-  const day = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' });
-  return day === 'Sat' || day === 'Sun';
+  return isNonTradingDay();
 }
+
+/**
+ * Build a uniform "skipped because market closed" job result with the
+ * specific reason (weekend / holiday name) included.
+ */
+function marketClosedSkip(jobLabel = 'Job') {
+  const s = todayStatus();
+  const why = s.reason === 'holiday'
+    ? `NSE holiday: ${s.holidayName}`
+    : `weekend (${s.weekday})`;
+  return {
+    ok: true,
+    message: `Market closed — ${why}. ${jobLabel} skipped.`,
+    detail: { skipped: true, ...s },
+  };
+}
+
+// Export the diagnostic helpers so server.js / UI can consume them
+export { isMarketHoliday, todayStatus, upcomingHolidays, nextTradingDays, marketClosedSkip };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // JOB: pre-market — generate today's curated picks
@@ -47,7 +70,7 @@ function isMarketHoliday() {
  * @param {object} ctx — { runScan, capital, autoTrack }
  */
 export async function jobPreMarket(ctx = {}) {
-  if (isMarketHoliday()) return { ok: true, message: 'Market closed (weekend)', detail: { skipped: true } };
+  if (isMarketHoliday()) return marketClosedSkip('Pre-market');
 
   const {
     runScan,
@@ -231,7 +254,7 @@ export async function jobPreMarketETF(ctx = {}) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function jobMarkToMarket() {
-  if (isMarketHoliday()) return { ok: true, message: 'Market closed', detail: { skipped: true } };
+  if (isMarketHoliday()) return marketClosedSkip('Mark-to-market');
   const positions = await markAllToMarket('paper');
   return {
     ok: true,
@@ -248,7 +271,7 @@ export async function jobMarkToMarket() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function jobExitCycle() {
-  if (isMarketHoliday()) return { ok: true, message: 'Market closed', detail: { skipped: true } };
+  if (isMarketHoliday()) return marketClosedSkip('Exit-cycle');
 
   // Refresh prices first so exit decisions use latest LTPs
   await markAllToMarket('paper');
@@ -266,7 +289,7 @@ export async function jobExitCycle() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function jobEodSnapshot() {
-  if (isMarketHoliday()) return { ok: true, message: 'Market closed', detail: { skipped: true } };
+  if (isMarketHoliday()) return marketClosedSkip('EOD snapshot');
 
   // Final mark-to-market + exit cycle for the day
   const mtm = await markAllToMarket('paper');
