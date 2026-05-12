@@ -507,6 +507,15 @@ body::before {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 18px;
+  flex-wrap: wrap;
+  gap: 10px;
+  /* Prevent layout shift when card width is constrained — the right-side
+     content (counts, buttons, dates) wraps to a new line cleanly instead
+     of overflowing or pushing the title out */
+}
+
+.card-header > .card-title {
+  min-width: 0; /* allow ellipsis truncation if title is too long */
 }
 
 .card-title {

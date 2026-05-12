@@ -15,7 +15,8 @@ const LivePositionsTab = React.lazy(() => import('./components/LivePositionsTab.
 const BacktestsTab     = React.lazy(() => import('./components/BacktestsTab.jsx'));
 const TodaysPicksTab   = React.lazy(() => import('./components/TodaysPicksTab.jsx'));
 
-const DEFAULT_CAPITAL = 50000;
+const DEFAULT_CAPITAL = 50000;       // Stocks
+const DEFAULT_CAPITAL_ETF = 25000;   // ETFs (half-size bucket per portfolio design)
 
 // Fallback portfolio used only when backend is offline
 const makeFallbackPortfolio = (capital) => ({
@@ -111,6 +112,13 @@ export default function App() {
     const saved = localStorage.getItem('swingpro-capital');
     return saved ? Number(saved) : DEFAULT_CAPITAL;
   });
+  const [etfCapital, setEtfCapital] = useState(() => {
+    const saved = localStorage.getItem('swingpro-capital-etf');
+    return saved ? Number(saved) : DEFAULT_CAPITAL_ETF;
+  });
+  // The "active" capital follows scanMode — used for PortfolioSummary,
+  // DailyPnLWidget, and any endpoint call scoped to the current asset class.
+  const activeCapital = scanMode === 'etf' ? etfCapital : capital;
 
   const [trades, setTrades] = useState([]);        // raw scan results (used to seed alerts only now)
   const [holdings, setHoldings] = useState([]);    // stock paper positions (Dashboard source when mode=stocks)
@@ -166,18 +174,31 @@ export default function App() {
 
   const handleCapitalChange = useCallback((newCapital) => {
     const val = Math.max(1000, Math.round(newCapital));
-    setCapital(val);
-    localStorage.setItem('swingpro-capital', String(val));
-    // Update fallback portfolio with new capital
-    setPortfolio(prev => ({
-      ...prev,
-      totalCapital: val,
-      remainingCash: Math.round(val - (prev.capitalDeployed || 0)),
-      cashReserveTarget: Math.round(val * 0.25),
-      riskExposurePercent: prev.totalRiskExposure ? Math.round((prev.totalRiskExposure / val) * 10000) / 100 : 0,
-      deploymentPercent: prev.capitalDeployed ? Math.round((prev.capitalDeployed / val) * 10000) / 100 : 0,
-    }));
-  }, []);
+    // Edit the pool corresponding to the currently active asset class
+    if (scanMode === 'etf') {
+      setEtfCapital(val);
+      localStorage.setItem('swingpro-capital-etf', String(val));
+      setEtfPortfolio(prev => prev ? ({
+        ...prev,
+        totalCapital: val,
+        remainingCash: Math.round(val - (prev.capitalDeployed || 0)),
+        cashReserveTarget: Math.round(val * 0.15),
+        riskExposurePercent: prev.totalRiskExposure ? Math.round((prev.totalRiskExposure / val) * 10000) / 100 : 0,
+        deploymentPercent: prev.capitalDeployed ? Math.round((prev.capitalDeployed / val) * 10000) / 100 : 0,
+      }) : prev);
+    } else {
+      setCapital(val);
+      localStorage.setItem('swingpro-capital', String(val));
+      setPortfolio(prev => ({
+        ...prev,
+        totalCapital: val,
+        remainingCash: Math.round(val - (prev.capitalDeployed || 0)),
+        cashReserveTarget: Math.round(val * 0.15),
+        riskExposurePercent: prev.totalRiskExposure ? Math.round((prev.totalRiskExposure / val) * 10000) / 100 : 0,
+        deploymentPercent: prev.capitalDeployed ? Math.round((prev.capitalDeployed / val) * 10000) / 100 : 0,
+      }));
+    }
+  }, [scanMode]);
 
   const fetchMarketOverview = useCallback(async () => {
     try {
@@ -194,23 +215,25 @@ export default function App() {
   // Called on mount, after every scan, and on a 30s auto-poll while open.
   const loadHoldings = useCallback(async () => {
     try {
-      // Fetch stock + ETF holdings + their portfolio summaries in parallel
+      // Fetch stock + ETF holdings + portfolios in parallel.
+      // Each class uses its own capital base (₹50K stocks, ₹25K ETFs).
       const [stockCards, etfCards, stockPort, etfPort] = await Promise.all([
         fetch('/api/positions/cards?mode=paper&assetClass=stock').then(r => r.json()),
         fetch('/api/positions/cards?mode=paper&assetClass=etf').then(r => r.json()),
         fetch(`/api/portfolio/live?mode=paper&assetClass=stock&capital=${capital}`).then(r => r.json()),
-        fetch(`/api/portfolio/live?mode=paper&assetClass=etf&capital=${capital}`).then(r => r.json()),
+        fetch(`/api/portfolio/live?mode=paper&assetClass=etf&capital=${etfCapital}`).then(r => r.json()),
       ]);
 
       setHoldings(stockCards.cards || []);
       setEtfHoldings(etfCards.cards || []);
 
-      // Convert portfolio/live response → shape PortfolioSummary expects
-      const toPortfolio = (r) => r && !r.error ? ({
-        totalCapital:        r.totalCapital ?? capital,
+      // Convert portfolio/live response → shape PortfolioSummary expects.
+      // Cap base passed in determines reserve target sizing.
+      const toPortfolio = (r, capBase) => r && !r.error ? ({
+        totalCapital:        r.totalCapital ?? capBase,
         capitalDeployed:     r.capitalDeployed ?? 0,
-        remainingCash:       r.cashRemaining ?? capital,
-        cashReserveTarget:   Math.round(capital * 0.15),
+        remainingCash:       r.cashRemaining ?? capBase,
+        cashReserveTarget:   Math.round(capBase * 0.15),
         totalRiskExposure:   r.openRisk ?? 0,
         riskExposurePercent: r.initialRiskPct ?? 0,
         activeTradeCount:    r.activePositions ?? 0,
@@ -221,8 +244,8 @@ export default function App() {
         unrealizedPct:       r.unrealizedPct ?? 0,
       }) : null;
 
-      const stockP = toPortfolio(stockPort);
-      const etfP   = toPortfolio(etfPort);
+      const stockP = toPortfolio(stockPort, capital);
+      const etfP   = toPortfolio(etfPort,   etfCapital);
       if (stockP) setPortfolio(stockP);
       if (etfP)   setEtfPortfolio(etfP);
       setIsLive(true);
@@ -230,7 +253,7 @@ export default function App() {
       // Holdings load failure isn't fatal — just keep what we have
       console.warn('loadHoldings failed:', err);
     }
-  }, [capital]);
+  }, [capital, etfCapital]);
 
   const runScan = useCallback(async (silent = false) => {
     if (!silent) setScanning(true);
@@ -507,8 +530,8 @@ export default function App() {
               <>{[1, 2].map(i => <div key={i} className="loading-skeleton skeleton-sidebar" />)}</>
             ) : (
               <>
-                <DailyPnLWidget capital={capital} activeClass={scanMode} />
-                <PortfolioSummary portfolio={activePortfolio} capital={capital} onCapitalChange={handleCapitalChange} />
+                <DailyPnLWidget capital={activeCapital} activeClass={scanMode} />
+                <PortfolioSummary portfolio={activePortfolio} capital={activeCapital} onCapitalChange={handleCapitalChange} />
                 <RegimePanel />
                 <MarketOverview marketData={marketData} />
                 <AlertPanel alerts={alerts} />
@@ -589,7 +612,7 @@ export default function App() {
             </div>
           </div>
           <div className="sidebar">
-            <PortfolioSummary portfolio={activePortfolio} capital={capital} onCapitalChange={handleCapitalChange} />
+            <PortfolioSummary portfolio={activePortfolio} capital={activeCapital} onCapitalChange={handleCapitalChange} />
           </div>
         </div>
       )}
@@ -597,7 +620,7 @@ export default function App() {
       {/* ============ LIVE (Paper Trading) TAB ============ */}
       {activeTab === 'live' && (
         <React.Suspense fallback={<div className="loading-skeleton skeleton-card" />}>
-          <LivePositionsTab capital={capital} activeClass={scanMode} />
+          <LivePositionsTab capital={activeCapital} activeClass={scanMode} />
         </React.Suspense>
       )}
 

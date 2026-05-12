@@ -52,7 +52,13 @@ export default function DailyPnLWidget({ capital = 50000, activeClass = 'stocks'
   const sign = isUp ? '+' : '';
 
   return (
-    <div className="card daily-pnl-widget" style={{ borderTop: `2px solid ${primaryColor}` }}>
+    <div className="card daily-pnl-widget" style={{
+      // Inset box-shadow gives the colored accent WITHOUT changing card height,
+      // so the widget stays aligned with sibling sidebar cards (Portfolio,
+      // Regime, MarketOverview, AlertPanel)
+      boxShadow: `inset 0 2px 0 ${primaryColor}`,
+      position: 'relative',
+    }}>
       <div className="card-header" style={{ paddingBottom: 4 }}>
         <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Arrow size={14} className="inline-icon" style={{ color: `var(--${tone})` }} />

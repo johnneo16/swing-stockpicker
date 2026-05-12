@@ -3,7 +3,9 @@
  * Professional position sizing and capital allocation for ₹50,000 portfolio.
  */
 
-const TOTAL_CAPITAL = 50000;
+const TOTAL_CAPITAL = 50000;             // Stocks portfolio capital
+const TOTAL_CAPITAL_ETF = 25000;         // ETFs portfolio capital (half size — passive, less volatile)
+const TOTAL_CAPITAL_COMMODITY = 30000;   // Commodities (future) — leveraged via margin
 const MAX_RISK_PERCENT = 0.02;           // 2% max risk per trade
 const DEFAULT_RISK_PERCENT = 0.015;      // 1.5% default risk per trade
 const MAX_CONCURRENT_TRADES = 5;
@@ -11,6 +13,20 @@ const CASH_RESERVE_PERCENT = 0.15;       // 15% cash reserve (down from 20% to a
 const MAX_SECTOR_EXPOSURE = 3;           // Max 3 stocks per sector
 const MIN_RISK_REWARD = 1.5;             // Minimum 1:1.5 risk-reward
 const MAX_CAPITAL_PER_TRADE = 0.20;      // Cap single trade at 20% of portfolio
+
+/**
+ * Look up capital allocated to an asset class.
+ * Each class has its own independent bucket (per user direction —
+ * separate pools, not a shared ₹50K).
+ */
+export function getCapitalForClass(assetClass = 'stock') {
+  switch (assetClass) {
+    case 'etf':       return TOTAL_CAPITAL_ETF;
+    case 'commodity': return TOTAL_CAPITAL_COMMODITY;
+    case 'stock':
+    default:          return TOTAL_CAPITAL;
+  }
+}
 
 /**
  * Volatility-adjusted risk multiplier.
@@ -183,6 +199,8 @@ function getSectorDistribution(trades) {
 
 export const CONFIG = {
   TOTAL_CAPITAL,
+  TOTAL_CAPITAL_ETF,
+  TOTAL_CAPITAL_COMMODITY,
   MAX_RISK_PERCENT,
   DEFAULT_RISK_PERCENT,
   MAX_CONCURRENT_TRADES,

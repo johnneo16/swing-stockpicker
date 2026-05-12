@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import cors from 'cors';
 import { batchFetchStocks, fetchMarketIndex } from './src/engine/dataFetcher.js';
 import { scoreStock, rankAndFilterTrades } from './src/engine/scoringEngine.js';
-import { calculatePortfolioSummary, CONFIG } from './src/engine/riskEngine.js';
+import { calculatePortfolioSummary, CONFIG, getCapitalForClass } from './src/engine/riskEngine.js';
 import STOCK_UNIVERSE from './src/engine/stockUniverse.js';
 import ETF_UNIVERSE from './src/engine/etfUniverse.js';
 
@@ -637,7 +637,8 @@ app.get('/api/positions/cards', (req, res) => {
 app.get('/api/equity/today', (req, res) => {
   const mode = req.query.mode === 'live' ? 'live' : 'paper';
   const assetClass = req.query.assetClass || null;   // null = combined
-  const capital = parseInt(req.query.capital || CONFIG.TOTAL_CAPITAL, 10);
+  // Capital default is class-specific (₹50K stocks, ₹25K ETFs) unless overridden
+  const capital = parseInt(req.query.capital || getCapitalForClass(assetClass || 'stock'), 10);
 
   // Open positions with their day-change data (filtered by asset class if given)
   const positions = listOpenPositions(mode, assetClass);
@@ -714,7 +715,7 @@ app.get('/api/equity/today', (req, res) => {
 app.get('/api/portfolio/live', (req, res) => {
   const mode       = req.query.mode === 'live' ? 'live' : 'paper';
   const assetClass = req.query.assetClass || null;
-  const capital    = parseInt(req.query.capital || CONFIG.TOTAL_CAPITAL, 10);
+  const capital    = parseInt(req.query.capital || getCapitalForClass(assetClass || 'stock'), 10);
   res.json({ mode, assetClass, ...livePortfolioSummary(mode, capital, assetClass) });
 });
 

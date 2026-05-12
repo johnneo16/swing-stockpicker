@@ -18,7 +18,7 @@ import {
 import { runExitCycle } from '../lifecycle/exitEngine.js';
 import { refreshEarningsCalendar, isEarningsBlackout } from '../intelligence/earningsFetcher.js';
 import { refreshRegime, getRegime, regimeBias } from '../intelligence/regimeDetector.js';
-import { CONFIG } from '../engine/riskEngine.js';
+import { CONFIG, getCapitalForClass } from '../engine/riskEngine.js';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -51,10 +51,12 @@ export async function jobPreMarket(ctx = {}) {
 
   const {
     runScan,
-    capital = CONFIG.TOTAL_CAPITAL,
     autoTrack = true,
     assetClass = 'stock',           // 'stock' | 'etf' (commodities future)
   } = ctx;
+  // Capital is determined by asset class. Caller can override via ctx.capital,
+  // but the default uses the class-specific bucket (₹50K stocks, ₹25K ETFs).
+  const capital = ctx.capital ?? getCapitalForClass(assetClass);
   if (!runScan) return { ok: false, message: 'runScan not provided to job' };
 
   // 1. Refresh regime + earnings calendar in parallel — fresh data for filters

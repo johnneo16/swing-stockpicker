@@ -137,11 +137,11 @@ export default function TodaysPicksTab({ activeClass = 'stocks' }) {
 
       {/* Today's picks summary */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-header">
+        <div className="card-header" style={{ flexWrap: 'wrap', gap: 10 }}>
           <div className="card-title">
             <Sun size={16} className="inline-icon" /> Today's Picks — {new Date().toISOString().slice(0, 10)}
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: '0.85rem' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: '0.85rem', flexWrap: 'wrap' }}>
             <span style={{ color: 'var(--profit)' }}>{tracked.length} tracked</span>
             <span style={{ color: 'var(--text-muted)' }}>·</span>
             <span style={{ color: 'var(--warning)' }}>{blocked.length} blocked</span>
@@ -150,7 +150,7 @@ export default function TodaysPicksTab({ activeClass = 'stocks' }) {
               className="btn-secondary"
               onClick={() => runJob(assetClassParam === 'etf' ? 'pre-market-etf' : 'pre-market')}
               disabled={busyJob === 'pre-market' || busyJob === 'pre-market-etf'}
-              style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+              style={{ padding: '4px 10px', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
             >
               {(busyJob === 'pre-market' || busyJob === 'pre-market-etf') ? <span className="spinner"/> : <Play size={12}/>} Run {assetClassParam === 'etf' ? 'ETF ' : ''}Pre-Market Now
             </button>
