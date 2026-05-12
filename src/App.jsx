@@ -10,6 +10,7 @@ import MarketOverview from './components/MarketOverview.jsx';
 import AlertPanel, { generateAlerts } from './components/AlertPanel.jsx';
 import RegimePanel from './components/RegimePanel.jsx';
 import DailyPnLWidget from './components/DailyPnLWidget.jsx';
+import NotificationManager from './components/NotificationManager.jsx';
 
 const LivePositionsTab = React.lazy(() => import('./components/LivePositionsTab.jsx'));
 const BacktestsTab     = React.lazy(() => import('./components/BacktestsTab.jsx'));
@@ -393,6 +394,7 @@ export default function App() {
 
         {/* Zone 3: Actions */}
         <div className="header-actions">
+          <NotificationManager />
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
 
           <button
