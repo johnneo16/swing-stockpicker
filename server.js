@@ -787,7 +787,8 @@ app.get('/api/events/upcoming', (req, res) => {
  */
 app.get('/api/journal/stats', (req, res) => {
   const mode = req.query.mode === 'live' ? 'live' : 'paper';
-  res.json(tradesRepo.journalStats(mode));
+  const assetClass = req.query.assetClass || null;
+  res.json(tradesRepo.journalStats(mode, assetClass));
 });
 
 /**

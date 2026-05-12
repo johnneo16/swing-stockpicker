@@ -4,6 +4,8 @@ import {
   CheckCircle2, AlertTriangle, Activity, ExternalLink, PlayCircle,
 } from 'lucide-react';
 
+const EquityCurveChart = React.lazy(() => import('./EquityCurveChart.jsx'));
+
 const API = (path) => path; // same-origin
 
 /**
@@ -104,6 +106,14 @@ export default function LivePositionsTab({ capital = 50000, activeClass = 'stock
             ✓ Last cycle: {actionLog.length} action{actionLog.length === 1 ? '' : 's'}
           </span>
         )}
+      </div>
+
+      {/* Equity Curve — visualizes realized P&L over time. Shows empty state
+          when no closures yet (until first paper trade exits via stop/target/time). */}
+      <div style={{ marginBottom: 16 }}>
+        <React.Suspense fallback={<div className="loading-skeleton skeleton-card" style={{ minHeight: 280 }} />}>
+          <EquityCurveChart assetClass={ac} />
+        </React.Suspense>
       </div>
 
       {/* Portfolio summary card */}

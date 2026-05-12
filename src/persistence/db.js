@@ -435,11 +435,14 @@ export const tradesRepo = {
    * Aggregate journal stats over closed trades (paper or live).
    * Mirrors backtest metrics so we can compare predicted vs actual edge.
    */
-  journalStats(mode = 'paper') {
-    const closed = db.prepare(
-      `SELECT * FROM trades WHERE status='closed' AND mode = ? ORDER BY exit_date ASC`
-    ).all(mode);
-    if (closed.length === 0) return { mode, totalTrades: 0, wins: 0, losses: 0 };
+  journalStats(mode = 'paper', assetClass = null) {
+    const sql = assetClass
+      ? `SELECT * FROM trades WHERE status='closed' AND mode = ? AND asset_class = ? ORDER BY exit_date ASC`
+      : `SELECT * FROM trades WHERE status='closed' AND mode = ? ORDER BY exit_date ASC`;
+    const closed = assetClass
+      ? db.prepare(sql).all(mode, assetClass)
+      : db.prepare(sql).all(mode);
+    if (closed.length === 0) return { mode, assetClass, totalTrades: 0, wins: 0, losses: 0, equityCurve: [], startingCapital: 50000 };
 
     const wins   = closed.filter(t => (t.realized_pnl || 0) > 0);
     const losses = closed.filter(t => (t.realized_pnl || 0) < 0);
