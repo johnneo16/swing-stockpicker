@@ -290,18 +290,24 @@ before firing.
 
 ```env
 # Angel One SmartAPI (optional — Yahoo Finance falls back if missing)
-API_KEY=...
-CLIENT_ID=...
-PIN=...
-TOTP_SECRET=...          # base32 secret from your Angel One TOTP setup
+ANGELONE_API_KEY=...           # 8-char API key from the SmartAPI portal
+ANGELONE_CLIENT_ID=...         # 10-char client ID (e.g. AACG103357)
+ANGELONE_PASSWORD=...          # 4-digit trading MPIN — NOT your login password
+ANGELONE_TOTP_SECRET=...       # 26-char base32 secret from the QR (not the QR URL)
 
 # Server
 PORT=3001
-NODE_ENV=production      # use "development" only when running npm run dev
+NODE_ENV=production            # use "development" only when running npm run dev
 
 # Optional overrides
-SWINGPRO_DB=./data/swingpro.db   # default
+SWINGPRO_DB=./data/swingpro.db # default
+LOG_LEVEL=info                 # debug | info | warn | error — defaults to info in prod
+LOG_DIR=                       # defaults to ~/Library/Logs on macOS
+DISABLE_LOG_SHIM=              # set to 1 to bypass the pino console-shim (debug only)
 ```
+
+`.env` is gitignored — never commit it. The Angel One JWT cache at
+`data/angelone-session.json` is also gitignored.
 
 ### Development (local, hot-reload)
 

@@ -21,6 +21,7 @@ DB backup/restore, and step-by-step recovery scenarios.
 8. [Install from scratch (new machine)](#8-install-from-scratch)
 9. [Morning checklist](#9-morning-checklist)
 10. [Troubleshooting guide](#10-troubleshooting-guide)
+11. [Cloud-migration prep notes](#11-cloud-migration-prep-notes)
 
 ---
 
@@ -490,11 +491,16 @@ console.log('non-trading day:', isNonTradingDay(new Date()));
 # Test authentication manually
 node test_angelone.mjs
 
-# If it logs "429 Too Many Requests" or "TokenException":
-#   - Wait 10-15 minutes (Angel One blocks rapid re-auth)
-#   - Verify TOTP_SECRET in .env is the base32 secret, not the QR URL
-#   - The JWT disk cache means you rarely need to re-auth — check:
-ls -la /tmp/angelone-jwt-*.json 2>/dev/null
+# If it logs "Login failed" or "TokenException":
+#   - DON'T assume credentials are wrong — almost always a TOTP-window race
+#     (fixed in the singleton-mutex auth path, but residual cases happen)
+#   - Wait 10-15 minutes — Angel One throttles rapid re-auth
+#   - ANGELONE_PASSWORD must be the 4-digit MPIN, NOT the login password
+#   - ANGELONE_TOTP_SECRET is the 26-char base32 secret, not the QR URL
+#   - The JWT disk cache saves a fresh TOTP on every cold-start — check:
+ls -la data/angelone-session.json 2>/dev/null
+# If corrupt / stale, delete it to force a fresh auth:
+rm data/angelone-session.json
 ```
 
 ### Watchdog is looping (server keeps restarting)
@@ -534,6 +540,87 @@ sudo systemsetup -gettimezone
 # If not, set it
 sudo systemsetup -settimezone "Asia/Kolkata"
 ```
+
+---
+
+---
+
+## 11. Cloud-migration prep notes
+
+The Mac launchd deployment is the validation environment. Once paper-trade
+results prove stable (1–2 months), the system moves to cloud. M1.6 (Docker)
+and M6 (cloud deploy) are the milestones that execute this — this section
+captures the constraints to design for.
+
+### Provider choice
+
+| Provider | Status | Why |
+|---|---|---|
+| **Render paid (Starter $7/mo)** | Default plan | No sleep; persistent disk; managed Postgres add-on; simple Node deploy from `render.yaml` (already in repo) |
+| **fly.io** | Backup plan | Free tier with persistent volume; multi-region if ever needed; needs Dockerfile |
+| **Render free tier** | ❌ Do NOT use | Sleeps after 15 min HTTP inactivity → **kills all node-cron jobs**. Hard-blocker for an orchestrator-driven app |
+| **Heroku** | ❌ Not considered | No free tier; dyno cycling complicates cron |
+
+### What must change before cloud
+
+1. **DB migration: better-sqlite3 → Postgres**
+   - Current: synchronous SQLite, single-file at `data/swingpro.db`
+   - Cloud: Postgres-compatible. Replace `db.js` repo layer; keep SQL as portable as possible (most of it already is)
+   - Migrations: the `migrator.js` versioned-migrations pattern (M1.2) translates 1:1 — just swap the runner
+
+2. **File-based caches → persistent disk or external store**
+   - `data/angelone-session.json` (JWT cache) — needs writable persistent disk on Render, or migrate to encrypted env-stored cache
+   - `data/historical/` (backtest price cache) — must live on persistent volume or be re-fetchable on cold start
+   - `data/angelone-tokens.json` (symbol→token map) — regenerable, can ship in the image
+
+3. **Log destination**
+   - Current: pino-roll → `~/Library/Logs/swingpro-app.YYYY-MM-DD.log`
+   - Cloud: pino → stdout (Render captures stdout into its log viewer). Set `LOG_DIR=` empty or detect via env to switch modes
+
+4. **Health endpoint hardening**
+   - `/api/health/macro` is the watchdog probe today. Cloud provider's healthcheck must hit it
+   - Add a `/health` simple-200 endpoint for the load balancer separately from the deep `/api/health/macro` that the in-process watchdog probes
+
+5. **Secrets**
+   - Move every `ANGELONE_*` var into the cloud provider's secret store
+   - Never bake secrets into the Docker image
+   - `.env` is local-only; cloud reads env vars directly
+
+6. **Timezone**
+   - All cron schedules use `Asia/Kolkata` explicitly in `orchestrator.js`, so this works regardless of host timezone — but **set `TZ=Asia/Kolkata`** on the cloud instance anyway for logs to match the data
+
+7. **NSE holiday calendar**
+   - Hardcoded through 2026 in `src/scheduler/nseHolidays.js`. Refresh annually before cloud deploy and again every November after NSE publishes the next year's holiday list
+
+### What stays the same
+
+- The orchestrator design (node-cron + holiday gate) works identically on cloud, **as long as the instance doesn't sleep** (hence: no Render free tier)
+- The Angel One singleton-mutex auth path works the same
+- The killswitch logic is DB-state-driven, so it survives instance restarts
+- The watchdog pattern collapses: in cloud, the platform's restart policy replaces `com.swingpro.watchdog`. Keep the `/api/health/macro` endpoint — it becomes the platform healthcheck
+
+### Migration checklist (when you actually do it)
+
+```
+☐ Add Dockerfile + docker-compose.yml (M1.6)
+☐ Replace better-sqlite3 with pg + connection pool
+☐ Port the schema via migrator.js to a single 000_init.sql
+☐ Re-run all backtests on the Postgres-backed build, confirm identical results
+☐ Add /health (lightweight) alongside /api/health/macro (deep)
+☐ Move ANGELONE_* and any other secrets to Render/fly secret store
+☐ Configure pino to write to stdout when LOG_DIR is empty
+☐ Set TZ=Asia/Kolkata in cloud env
+☐ Deploy to staging, run for 2 weeks paper-trade in parallel with the Mac
+☐ Compare paper-trade picks Mac vs cloud — must match within 1-2 picks/day
+☐ Cut over: stop the Mac agents, point DNS / your bookmark at cloud
+☐ Keep daily DB backups copying to local Mac for disaster recovery
+```
+
+### Cost ceiling
+
+Target: **≤ $15/mo** total cloud spend (Render Starter $7 + managed Postgres
+$7). If costs creep past this without a clear performance reason, fall back
+to fly.io free tier with persistent volume.
 
 ---
 
