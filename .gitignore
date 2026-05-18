@@ -37,6 +37,10 @@ data/swingpro.db-wal
 data/swingpro.db-shm
 data/historical/
 
+# Angel One auth caches — JWT and token map are credentials, never commit
+data/angelone-session.json
+data/angelone-tokens.json
+
 # Agent / IDE configs (machine-local)
 .claude/
 .cursor/
