@@ -66,6 +66,7 @@ const TradeCard = ({ trade }) => {
               {trade.setupType && (
                 <span className="setup-type-badge">{trade.setupType}</span>
               )}
+              {trade.checklist && <ChecklistStrip checklist={trade.checklist} />}
               {hasFundamentals && fund.fundamentalRating && (
                 <span className={`fund-badge ${fund.fundamentalRating.toLowerCase()}`}>
                   FA: {fund.fundamentalRating}
@@ -351,6 +352,47 @@ function formatRecommendation(key) {
     sell: <><XCircle size={12} className="inline-icon"/> Sell</>,
   };
   return map[key] || key;
+}
+
+/**
+ * Varsity 5-gate pre-trade checklist strip (TA module Finale, ch.19).
+ * Green dot = gate passed; gray dot = failed. Hover for the gate name.
+ */
+function ChecklistStrip({ checklist }) {
+  const gates = [
+    { k: 'trend',       label: 'Trend',     title: 'Daily trend confirmed (EMA stack / HH-HL / weekly bullish)' },
+    { k: 'candlestick', label: 'Pattern',   title: 'Bullish candlestick pattern detected' },
+    { k: 'srLevel',     label: 'S/R',       title: 'Entry near support or fresh breakout level' },
+    { k: 'volume',      label: 'Volume',    title: 'Above-average volume confirms move' },
+    { k: 'riskReward',  label: 'R:R',       title: 'Risk-reward ratio ≥ 1.5' },
+  ];
+  const passed = gates.filter(g => checklist[g.k]).length;
+  return (
+    <span
+      title={`Varsity checklist: ${passed}/5 gates passed`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        padding: '2px 8px', borderRadius: 4,
+        background: passed >= 4 ? 'rgba(34,197,94,0.12)' : passed >= 3 ? 'rgba(245,158,11,0.12)' : 'rgba(148,163,184,0.10)',
+        fontSize: '0.66rem', fontWeight: 700,
+        color: passed >= 4 ? 'var(--profit)' : passed >= 3 ? 'var(--warning)' : 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: 0.5,
+      }}
+    >
+      {gates.map(g => (
+        <span
+          key={g.k}
+          title={`${g.label}: ${checklist[g.k] ? '✓ passed' : '✗ failed'} — ${g.title}`}
+          style={{
+            width: 6, height: 6, borderRadius: '50%',
+            background: checklist[g.k] ? 'var(--profit)' : 'var(--text-muted)',
+            opacity: checklist[g.k] ? 1 : 0.35,
+          }}
+        />
+      ))}
+      <span style={{ marginLeft: 4 }}>{passed}/5</span>
+    </span>
+  );
 }
 
 export default React.memo(TradeCard);

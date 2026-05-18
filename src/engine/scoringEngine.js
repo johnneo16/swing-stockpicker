@@ -244,6 +244,10 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
     setupType,
     confidenceScore: Math.round(totalScore),
     riskLevel,
+    // Varsity TA Finale (ch.19) pre-trade checklist — 5 explicit gates.
+    // Surfaced on the TradeCard so the user sees exactly which Varsity
+    // pillars each pick clears (and which it doesn't).
+    checklist: buildChecklist(signals, indicators, levels),
     whyThisWorks: generateWhyWorks(signals, indicators, fundResult),
     whyThisCanFail: whyNot,
     executionStrategy,
@@ -384,6 +388,27 @@ function adxGate(trade) {
  * Refuses trending LONG setups when the weekly trend is confirmed DOWN.
  * Mean-reversion / squeeze setups are exempt — they intentionally fade.
  */
+/**
+ * Pre-trade checklist — Varsity TA Finale (ch.19).
+ * The 5 gates Varsity requires before taking any setup:
+ *   1. Trend       — daily trend direction confirmed (EMA stack/structure)
+ *   2. Candlestick — a recognized bullish pattern is present
+ *   3. S/R         — entry sits near a defined support / breakout level
+ *   4. Volume      — above-average volume confirming the move
+ *   5. R:R         — risk-reward ≥ 1.5
+ */
+function buildChecklist(signals, indicators, levels) {
+  return {
+    trend:       !!(signals.trendAligned || signals.inUptrend || signals.mtfBullish),
+    candlestick: !!(signals.anyBullishPattern || signals.threeWhiteSoldiers ||
+                    signals.morningStar || signals.bullishEngulfing || signals.hammer ||
+                    signals.bullishHarami || signals.dragonflyDoji),
+    srLevel:     !!(signals.nearSupport || signals.breakingOut || signals.nearLowerBB),
+    volume:      !!(signals.volumeAboveAvg || signals.volumeSpike),
+    riskReward:  (levels?.riskRewardRatio ?? 0) >= 1.5,
+  };
+}
+
 function mtfGate(trade) {
   const mtf = trade.indicators?.mtf;
   if (!mtf || mtf.weeklyTrend === 'unknown') return null;
