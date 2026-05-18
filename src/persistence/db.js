@@ -67,6 +67,12 @@ CREATE TABLE IF NOT EXISTS trades (
   notes           TEXT,
   metadata        TEXT,                                     -- JSON blob
 
+  -- Added by migration 002: deterministic post-trade reflection
+  reflection_json TEXT,
+  reflection_at   TEXT,
+  -- Added by migration 003: per-asset-class capital pool tagging
+  asset_class     TEXT DEFAULT 'stock',                     -- 'stock' | 'etf' | 'commodity'
+
   created_at      TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -74,6 +80,7 @@ CREATE TABLE IF NOT EXISTS trades (
 CREATE INDEX IF NOT EXISTS idx_trades_symbol_status ON trades(symbol, status);
 CREATE INDEX IF NOT EXISTS idx_trades_entry_date    ON trades(entry_date);
 CREATE INDEX IF NOT EXISTS idx_trades_mode_status   ON trades(mode, status);
+CREATE INDEX IF NOT EXISTS idx_trades_asset_status  ON trades(asset_class, status, mode);
 
 CREATE TABLE IF NOT EXISTS positions (
   trade_id          INTEGER PRIMARY KEY,
@@ -159,7 +166,9 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
   max_drawdown_pct REAL,
   sharpe_ratio    REAL,
   profit_factor   REAL,
-  notes           TEXT
+  notes           TEXT,
+  -- Added by migration 003: per-asset-class backtest result filtering
+  asset_class     TEXT DEFAULT 'stock'
 );
 
 CREATE TABLE IF NOT EXISTS daily_picks (
@@ -181,11 +190,14 @@ CREATE TABLE IF NOT EXISTS daily_picks (
   auto_tracked    INTEGER NOT NULL DEFAULT 0,
   trade_id        INTEGER,                                  -- FK to trades.id if auto-tracked
   payload_json    TEXT,                                     -- full scored trade for replay
+  -- Added by migration 003: per-asset-class daily-picks filtering
+  asset_class     TEXT DEFAULT 'stock',
   created_at      TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(pick_date, symbol)
 );
 
 CREATE INDEX IF NOT EXISTS idx_daily_picks_date ON daily_picks(pick_date);
+CREATE INDEX IF NOT EXISTS idx_picks_date_class ON daily_picks(pick_date, asset_class);
 
 CREATE TABLE IF NOT EXISTS scheduler_log (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,25 +243,15 @@ CREATE INDEX IF NOT EXISTS idx_bt_trades_symbol ON backtest_trades(symbol);
 `);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Idempotent migrations — for tables created by earlier versions
+// Versioned migrations — replaces the legacy safeAlter pattern.
+// Migration files live under src/persistence/migrations/NNN_*.sql and run
+// in order, exactly once. Legacy DBs (where the safeAlter columns already
+// exist) are auto-primed: the migrator detects a pre-existing trades table
+// and marks every known migration as already-applied. Future migrations
+// land as new numbered .sql files and apply on next boot.
 // ─────────────────────────────────────────────────────────────────────────────
-function safeAlter(sql) {
-  try { db.exec(sql); } catch (e) {
-    // ignore "duplicate column" errors — migration already applied
-    if (!/duplicate column/i.test(e.message)) console.warn('[db migration]', e.message);
-  }
-}
-safeAlter(`ALTER TABLE positions ADD COLUMN prev_close REAL`);
-safeAlter(`ALTER TABLE positions ADD COLUMN day_change_pct REAL`);
-// reflection_json: deterministic post-trade reflection (heuristic, no AI yet)
-safeAlter(`ALTER TABLE trades ADD COLUMN reflection_json TEXT`);
-safeAlter(`ALTER TABLE trades ADD COLUMN reflection_at TEXT`);
-// asset_class: 'stock' | 'etf' | 'commodity' — defaults to 'stock' for backfill compatibility
-safeAlter(`ALTER TABLE trades ADD COLUMN asset_class TEXT DEFAULT 'stock'`);
-safeAlter(`ALTER TABLE daily_picks ADD COLUMN asset_class TEXT DEFAULT 'stock'`);
-safeAlter(`ALTER TABLE backtest_runs ADD COLUMN asset_class TEXT DEFAULT 'stock'`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_trades_asset_status ON trades(asset_class, status, mode);`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_picks_date_class ON daily_picks(pick_date, asset_class);`);
+import { runMigrations } from './migrator.js';
+runMigrations(db);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PREPARED STATEMENTS — TRADES
