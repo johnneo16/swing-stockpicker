@@ -291,7 +291,7 @@ before firing.
 ```env
 # Angel One SmartAPI (optional — Yahoo Finance falls back if missing)
 ANGELONE_API_KEY=...           # 8-char API key from the SmartAPI portal
-ANGELONE_CLIENT_ID=...         # 10-char client ID (e.g. AACG103357)
+ANGELONE_CLIENT_ID=...         # 10-char Angel One client ID (format: AAAA000000)
 ANGELONE_PASSWORD=...          # 4-digit trading MPIN — NOT your login password
 ANGELONE_TOTP_SECRET=...       # 26-char base32 secret from the QR (not the QR URL)
 

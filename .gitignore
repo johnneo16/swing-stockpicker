@@ -52,3 +52,7 @@ AGENTS.md
 CLAUDE.md
 GEMINI.md
 data/swingpro.db.eod-*
+
+# Internal session handoff notes — operational state, email, P&L,
+# decision history. Local-only, do not publish.
+HANDOFF.md
