@@ -112,18 +112,21 @@ confidence.
 | **Earnings blackout** | Auto-block names with results in next 5 trading days | NSE board-meetings calendar |
 | **Regime gating** | Score nudge ±10 + size multiplier 0.4–1.4× based on detected regime (bullish_trending, choppy, risk_off_drawdown, etc.) | Regime Detector |
 
-### C. Per-pick Varsity 5-gate checklist (shown on every TradeCard)
+### C. Per-pick Varsity 7-gate checklist (shown on every TradeCard)
 
-A transparent green/grey 5-dot strip on the card, so you see exactly
-which Varsity pillar each pick clears:
+A transparent green/grey 7-dot strip on the card, so you see exactly
+which Varsity pillar each pick clears. Matches Varsity TA Finale
+ch.19 §19.5 prescription verbatim:
 
-1. **Trend** — daily trend direction confirmed (EMA stack / HH-HL / weekly bullish)
-2. **Candlestick** — recognized bullish pattern present
-3. **S/R** — entry near support or fresh breakout level
-4. **Volume** — above-average volume confirms the move
-5. **R:R** — risk-reward ≥ 1.5
+1. **Pattern** — recognized candlestick pattern present
+2. **Prior trend** — bullish pattern preceded by a downtrend (cardinal Varsity rule)
+3. **Volume** — current vol ≥ 10-day avg
+4. **S/R** — entry aligned with support or fresh breakout level
+5. **Dow** — primary trend confirms (EMA stack / HH-HL / weekly bullish)
+6. **R:R** — risk-reward ≥ 1.5
+7. **MACD + RSI** — both indicators confirm direction
 
-Source: Varsity Technical Analysis module Finale chapter (ch.19).
+Source: Varsity Technical Analysis module Finale chapter (ch.19 §19.5).
 
 ### D. Setup types the engine recognizes
 
@@ -189,11 +192,13 @@ The evaluation criteria above are not invented — they map directly to
 specific chapters of **Zerodha Varsity**, India's most-respected free
 trading curriculum:
 
-- **Technical Analysis** (22 ch) → factors 1-4, 9; candlestick set; ADX gate (ch.20); 5-gate checklist (ch.19); MTF (ch.19 + Dow ch.17-18)
+- **Technical Analysis** (22 ch) → factors 1-4, 9; candlestick set; ADX gate (ch.20, threshold 25); volume window 10-day (ch.12); prior-trend gate for reversal patterns (ch.4-10); 7-gate checklist (ch.19); MTF (ch.19 + Dow ch.17-18)
 - **Trading Systems** (16 ch) → backtester design, system-grade metrics, decay monitor
 - **Risk Management & Trading Psychology** (16 ch) → variance/covariance/correlation matrix (ch.3-5), VaR (ch.10), position sizing (ch.11-13), Kelly (ch.14), bias tagging (ch.15-16)
-- **Fundamental Analysis** (16 ch) → factor 7 (ROCE/ROE/DE/revenue growth/margin)
+- **Fundamental Analysis** (16 ch) → factor 7 (P/E ch.11, ROE ch.9, ROCE, D/E ch.10, Varsity-spec thresholds)
 - **Sector Analysis** (17 ch) → sector cap rule + sector rotation in regime detector
+
+**Full chapter-by-chapter audit:** see [`docs/VARSITY_COMPLIANCE.md`](docs/VARSITY_COMPLIANCE.md) for the complete compliance matrix — what we match exactly (✅), what's partial (🟡), what's missing (❌), with the Varsity-prescribed values vs our current values for every rule.
 
 The engine intentionally produces few signals on weak days. If nothing
 clears all the gates, the Today tab shows nothing — and that is the

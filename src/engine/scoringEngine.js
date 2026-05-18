@@ -106,13 +106,25 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   contextScore = Math.max(0, Math.min(contextScore, WEIGHTS.marketContext));
 
   // === CANDLESTICK PATTERN SCORE (0-5) ===
+  // Varsity ch.4-10: reversal patterns are valid only after a contrary trend.
+  // We halve the pattern score when the prior-trend gate is not satisfied,
+  // and zero it for the strongest reversal patterns (Morning Star,
+  // Bullish Engulfing, Hammer) which carry their meaning ENTIRELY from
+  // the prior-downtrend context.
   let patternScore = 0;
-  if (signals.threeWhiteSoldiers) patternScore = 5;
+  if (signals.threeWhiteSoldiers) patternScore = 5;     // continuation pattern — no prior-trend req
   else if (signals.morningStar) patternScore = 5;
   else if (signals.bullishEngulfing) patternScore = 4;
   else if (signals.hammer) patternScore = 3;
   else if (signals.dragonflyDoji) patternScore = 3;
   else if (signals.bullishHarami) patternScore = 2;
+
+  // Apply prior-trend penalty for reversal patterns
+  const isReversalPattern = signals.morningStar || signals.bullishEngulfing ||
+                            signals.hammer || signals.bullishHarami || signals.dragonflyDoji;
+  if (isReversalPattern && !signals.priorTrendOk) {
+    patternScore = Math.floor(patternScore / 2);  // halve — Varsity says these need prior downtrend
+  }
   patternScore = Math.min(patternScore, WEIGHTS.patterns);
 
   // === MARKET STRUCTURE SCORE (0-5) — HH/HL + OBV ===
@@ -370,8 +382,9 @@ function adxGate(trade) {
     'OBV Bullish Divergence',
   ];
 
-  if (trendingSetups.includes(setup) && adx < 20) {
-    return `ADX ${adx} < 20: ${setup} requires a real trend (chop kills trending setups)`;
+  // Varsity ch.20 prescribes ADX ≥ 25 for trend-entry; <20 = weak trend; 20-25 grey
+  if (trendingSetups.includes(setup) && adx < 25) {
+    return `ADX ${adx} < 25: ${setup} requires a real trend (Varsity ch.20 threshold)`;
   }
   if (meanRevSetups.includes(setup) && adx > 30) {
     return `ADX ${adx} > 30: ${setup} needs a range, not a runaway trend`;
@@ -389,23 +402,27 @@ function adxGate(trade) {
  * Mean-reversion / squeeze setups are exempt — they intentionally fade.
  */
 /**
- * Pre-trade checklist — Varsity TA Finale (ch.19).
- * The 5 gates Varsity requires before taking any setup:
- *   1. Trend       — daily trend direction confirmed (EMA stack/structure)
- *   2. Candlestick — a recognized bullish pattern is present
- *   3. S/R         — entry sits near a defined support / breakout level
- *   4. Volume      — above-average volume confirming the move
- *   5. R:R         — risk-reward ≥ 1.5
+ * Pre-trade checklist — Varsity TA Finale (ch.19 §19.5).
+ * Full 7-item version matching Varsity's prescribed sequence:
+ *   1. Pattern    — recognized candlestick pattern present
+ *   2. Prior trend — bullish pattern preceded by downtrend (cardinal Varsity rule)
+ *   3. Volume    — ≥ 10-day avg (Varsity ch.12)
+ *   4. S/R       — entry near support / SL aligned with S&R level (≤4% gap)
+ *   5. Dow       — primary/secondary trend confirms (EMA stack as proxy)
+ *   6. R:R       — risk-reward ≥ 1.5
+ *   7. Indicators — MACD + RSI confirm direction
  */
 function buildChecklist(signals, indicators, levels) {
   return {
-    trend:       !!(signals.trendAligned || signals.inUptrend || signals.mtfBullish),
-    candlestick: !!(signals.anyBullishPattern || signals.threeWhiteSoldiers ||
+    pattern:     !!(signals.anyBullishPattern || signals.threeWhiteSoldiers ||
                     signals.morningStar || signals.bullishEngulfing || signals.hammer ||
                     signals.bullishHarami || signals.dragonflyDoji),
-    srLevel:     !!(signals.nearSupport || signals.breakingOut || signals.nearLowerBB),
+    priorTrend:  !!signals.priorTrendOk,    // Varsity ch.4-10: prior downtrend required
     volume:      !!(signals.volumeAboveAvg || signals.volumeSpike),
+    srLevel:     !!(signals.nearSupport || signals.breakingOut || signals.nearLowerBB),
+    dow:         !!(signals.trendAligned || signals.inUptrend || signals.mtfBullish),
     riskReward:  (levels?.riskRewardRatio ?? 0) >= 1.5,
+    indicators:  !!(signals.macdBullish && signals.rsiNeutralBullish), // both must confirm
   };
 }
 

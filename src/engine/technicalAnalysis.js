@@ -46,9 +46,12 @@ export function analyzeTechnicals(quotes) {
   const atrValues = ATR.calculate({ high: highs, low: lows, close: closes, period: 14 });
   const atr = atrValues.length > 0 ? atrValues[atrValues.length - 1] : currentPrice * 0.02;
 
+  // Varsity ch.12: volume baseline is 10-day SMA (not 20). Keep avgVolume20
+  // exposed for legacy callers but compute volumeRatio off 10-day per Varsity.
+  const avgVolume10  = volumes.slice(-10).reduce((a, b) => a + b, 0) / 10;
   const avgVolume20  = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
   const currentVolume = volumes[volumes.length - 1];
-  const volumeRatio   = avgVolume20 > 0 ? currentVolume / avgVolume20 : 1;
+  const volumeRatio   = avgVolume10 > 0 ? currentVolume / avgVolume10 : 1;
 
   const bbValues = BollingerBands.calculate({ period: 20, values: closes, stdDev: 2 });
   const bb       = bbValues.length > 0 ? bbValues[bbValues.length - 1] : null;
@@ -172,6 +175,8 @@ export function analyzeTechnicals(quotes) {
     threeWhiteSoldiers: patterns.threeWhiteSoldiers,
     bullishHarami:     patterns.bullishHarami,
     anyBullishPattern: patterns.anyBullish,
+    priorTrendOk:      patterns.priorTrendOk,    // Varsity ch.4-10 prior-trend gate
+    priorTrendPct:     patterns.priorTrendPct,
 
     // ── Market structure (new)
     higherHighs:  structure.higherHighs,
@@ -293,6 +298,21 @@ function detectCandlestickPatterns(quotes) {
 
   p.anyBullish = p.hammer || p.bullishEngulfing || p.morningStar ||
                  p.dragonflyDoji || p.threeWhiteSoldiers || p.bullishHarami;
+
+  // Varsity ch.4-10 cardinal rule: bullish reversal patterns are only valid
+  // when preceded by a downtrend. Without this check, a hammer in the middle
+  // of an uptrend is a continuation signal (or noise), not a buy.
+  // Use a 5-day prior trend window measured on closes BEFORE the pattern.
+  if (p.anyBullish && quotes.length >= 8) {
+    const window = quotes.slice(-8, -1).map(q => q.close); // 7 closes preceding c0
+    const start = window[0], end = window[window.length - 1];
+    const priorTrendPct = start > 0 ? (end - start) / start * 100 : 0;
+    p.priorTrendOk = priorTrendPct < -0.5; // strictly downtrend, > 0.5% drop
+    p.priorTrendPct = +priorTrendPct.toFixed(2);
+  } else {
+    p.priorTrendOk = false;
+    p.priorTrendPct = 0;
+  }
 
   return p;
 }

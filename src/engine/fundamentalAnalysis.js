@@ -116,43 +116,52 @@ export function scoreFundamentals(fundamentals) {
   let maxScore = 0;
   const insights = [];
 
-  // === VALUATION (max 3 points) ===
+  // === VALUATION (max 3 points) — Varsity ch.11 thresholds ===
+  // Karthik: "I wouldn't say I like to buy stocks beyond 25 or at most 30x earnings"
   if (fundamentals.peRatio !== null) {
     maxScore += 3;
-    if (fundamentals.peRatio > 0 && fundamentals.peRatio <= 20) {
+    if (fundamentals.peRatio > 0 && fundamentals.peRatio <= 16) {
       score += 3;
-      insights.push(`PE ${fundamentals.peRatio.toFixed(1)} — attractively valued`);
-    } else if (fundamentals.peRatio > 20 && fundamentals.peRatio <= 35) {
+      insights.push(`PE ${fundamentals.peRatio.toFixed(1)} — attractive (Varsity <16x)`);
+    } else if (fundamentals.peRatio > 16 && fundamentals.peRatio <= 22) {
       score += 2;
-      insights.push(`PE ${fundamentals.peRatio.toFixed(1)} — fairly valued`);
-    } else if (fundamentals.peRatio > 35 && fundamentals.peRatio <= 60) {
+      insights.push(`PE ${fundamentals.peRatio.toFixed(1)} — fair (Varsity 16-22x neutral)`);
+    } else if (fundamentals.peRatio > 22 && fundamentals.peRatio <= 30) {
       score += 1;
-      insights.push(`PE ${fundamentals.peRatio.toFixed(1)} — premium valuation`);
-    } else if (fundamentals.peRatio > 60) {
-      score += 0;
-      insights.push(`PE ${fundamentals.peRatio.toFixed(1)} — expensive`);
+      insights.push(`PE ${fundamentals.peRatio.toFixed(1)} — cautious (Varsity 22-30x)`);
+    } else if (fundamentals.peRatio > 30) {
+      score = Math.max(0, score - 1);  // active penalty
+      insights.push(`PE ${fundamentals.peRatio.toFixed(1)} — AVOID (Varsity >30x)`);
     } else {
       score += 0;
       insights.push('Negative PE — company not profitable');
     }
   }
 
-  // === PROFITABILITY (max 3 points) ===
-  // Increased weight since we rely heavily on tracking ROE and now ROCE
+  // === PROFITABILITY (max 3 points) — Varsity ch.9 thresholds ===
+  // Varsity: ROE >= 18% is good; top Indian companies 14-16%; due diligence wants >=25%
   if (fundamentals.roe !== null) {
     maxScore += 3;
-    if (fundamentals.roe >= 20) { score += 3; insights.push(`ROE ${fundamentals.roe.toFixed(1)}% — excellent`); }
-    else if (fundamentals.roe >= 15) { score += 2; insights.push(`ROE ${fundamentals.roe.toFixed(1)}% — strong`); }
-    else if (fundamentals.roe >= 10) { score += 1; insights.push(`ROE ${fundamentals.roe.toFixed(1)}% — moderate`); }
-    else { score += 0; insights.push(`ROE ${fundamentals.roe.toFixed(1)}% — weak`); }
+    if (fundamentals.roe >= 25)      { score += 3; insights.push(`ROE ${fundamentals.roe.toFixed(1)}% — excellent (Varsity DD ≥25%)`); }
+    else if (fundamentals.roe >= 18) { score += 2; insights.push(`ROE ${fundamentals.roe.toFixed(1)}% — good (Varsity ≥18%)`); }
+    else if (fundamentals.roe >= 14) { score += 1; insights.push(`ROE ${fundamentals.roe.toFixed(1)}% — average (top Indian avg)`); }
+    else                              { score += 0; insights.push(`ROE ${fundamentals.roe.toFixed(1)}% — weak (Varsity <14%)`); }
   }
 
-  // === CAPITAL EFFICIENCY (max 2 points) ===
+  // === CAPITAL EFFICIENCY (max 2 points) — Varsity has no fixed threshold ===
   if (fundamentals.roce !== null) {
     maxScore += 2;
     if (fundamentals.roce >= 20) { score += 2; insights.push(`ROCE ${fundamentals.roce.toFixed(1)}% — highly efficient`); }
     else if (fundamentals.roce >= 12) { score += 1; insights.push(`ROCE ${fundamentals.roce.toFixed(1)}% — efficient`); }
     else { score += 0; }
+  }
+
+  // === LEVERAGE (max 1 point) — Varsity ch.10: D/E > 1 = caution ===
+  if (fundamentals.debtToEquity !== null && fundamentals.debtToEquity !== undefined) {
+    maxScore += 1;
+    if (fundamentals.debtToEquity <= 0.5) { score += 1; insights.push(`D/E ${fundamentals.debtToEquity.toFixed(2)} — low leverage`); }
+    else if (fundamentals.debtToEquity <= 1.0) { score += 0.5; insights.push(`D/E ${fundamentals.debtToEquity.toFixed(2)} — moderate leverage`); }
+    else { score += 0; insights.push(`D/E ${fundamentals.debtToEquity.toFixed(2)} — high leverage (Varsity caution >1)`); }
   }
 
   // === 52-WEEK POSITION (max 2 point) ===

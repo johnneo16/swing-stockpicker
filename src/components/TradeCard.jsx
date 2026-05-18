@@ -359,23 +359,26 @@ function formatRecommendation(key) {
  * Green dot = gate passed; gray dot = failed. Hover for the gate name.
  */
 function ChecklistStrip({ checklist }) {
+  // Varsity TA Finale (ch.19 §19.5) — exact 7-item sequence
   const gates = [
-    { k: 'trend',       label: 'Trend',     title: 'Daily trend confirmed (EMA stack / HH-HL / weekly bullish)' },
-    { k: 'candlestick', label: 'Pattern',   title: 'Bullish candlestick pattern detected' },
-    { k: 'srLevel',     label: 'S/R',       title: 'Entry near support or fresh breakout level' },
-    { k: 'volume',      label: 'Volume',    title: 'Above-average volume confirms move' },
-    { k: 'riskReward',  label: 'R:R',       title: 'Risk-reward ratio ≥ 1.5' },
+    { k: 'pattern',     label: 'Pattern',     title: 'Recognized candlestick pattern detected' },
+    { k: 'priorTrend',  label: 'Prior trend', title: 'Bullish pattern preceded by a downtrend (Varsity cardinal rule)' },
+    { k: 'volume',      label: 'Volume',      title: 'Above-average volume vs 10-day avg' },
+    { k: 'srLevel',     label: 'S/R',         title: 'Entry aligned with support or fresh breakout level' },
+    { k: 'dow',         label: 'Dow',         title: 'Primary trend confirms (EMA stack / HH-HL / weekly bullish)' },
+    { k: 'riskReward',  label: 'R:R',         title: 'Risk-reward ratio ≥ 1.5' },
+    { k: 'indicators',  label: 'MACD+RSI',    title: 'MACD bullish AND RSI in healthy 40-65 zone' },
   ];
   const passed = gates.filter(g => checklist[g.k]).length;
   return (
     <span
-      title={`Varsity checklist: ${passed}/5 gates passed`}
+      title={`Varsity 7-gate checklist: ${passed}/7 gates passed`}
       style={{
-        display: 'inline-flex', alignItems: 'center', gap: 4,
+        display: 'inline-flex', alignItems: 'center', gap: 3,
         padding: '2px 8px', borderRadius: 4,
-        background: passed >= 4 ? 'rgba(34,197,94,0.12)' : passed >= 3 ? 'rgba(245,158,11,0.12)' : 'rgba(148,163,184,0.10)',
+        background: passed >= 6 ? 'rgba(34,197,94,0.12)' : passed >= 4 ? 'rgba(245,158,11,0.12)' : 'rgba(148,163,184,0.10)',
         fontSize: '0.66rem', fontWeight: 700,
-        color: passed >= 4 ? 'var(--profit)' : passed >= 3 ? 'var(--warning)' : 'var(--text-muted)',
+        color: passed >= 6 ? 'var(--profit)' : passed >= 4 ? 'var(--warning)' : 'var(--text-muted)',
         textTransform: 'uppercase', letterSpacing: 0.5,
       }}
     >
@@ -390,7 +393,7 @@ function ChecklistStrip({ checklist }) {
           }}
         />
       ))}
-      <span style={{ marginLeft: 4 }}>{passed}/5</span>
+      <span style={{ marginLeft: 4 }}>{passed}/7</span>
     </span>
   );
 }
