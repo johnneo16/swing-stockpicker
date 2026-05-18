@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Briefcase, RefreshCw, ArrowUpRight, ArrowDownRight, Target, Shield, Clock,
   CheckCircle2, AlertTriangle, Activity, ExternalLink, PlayCircle,
+  ChevronDown, ChevronRight, Brain, ThumbsUp, ThumbsDown, Lightbulb,
 } from 'lucide-react';
 
 const EquityCurveChart         = React.lazy(() => import('./EquityCurveChart.jsx'));
@@ -27,6 +28,7 @@ export default function LivePositionsTab({ capital = 50000, activeClass = 'stock
   const [exiting, setExiting]     = useState(false);
   const [actionLog, setActionLog] = useState([]);
   const [error, setError]         = useState(null);
+  const [expandedTradeId, setExpandedTradeId] = useState(null);
 
   const loadAll = useCallback(async () => {
     try {
@@ -253,29 +255,49 @@ export default function LivePositionsTab({ capital = 50000, activeClass = 'stock
           <div className="portfolio-table-wrapper">
             <table className="portfolio-table">
               <thead>
-                <tr>{['Stock', 'Entry', 'Exit', 'P&L', '%', 'Days', 'Reason'].map(h => <th key={h} className="portfolio-th">{h}</th>)}</tr>
+                <tr>{['', 'Stock', 'Entry', 'Exit', 'P&L', '%', 'Days', 'Reason'].map((h, i) => <th key={i} className="portfolio-th">{h}</th>)}</tr>
               </thead>
               <tbody>
-                {history.map(t => (
-                  <tr key={t.id} className="portfolio-row">
-                    <td className="portfolio-td" style={{ fontWeight: 600 }}>
-                      {t.symbol}
-                      <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.setup_type}</span>
-                    </td>
-                    <td className="portfolio-td" style={{ fontFamily: 'var(--font-mono)' }}>₹{t.entry_price}</td>
-                    <td className="portfolio-td" style={{ fontFamily: 'var(--font-mono)' }}>₹{t.exit_price}</td>
-                    <td className="portfolio-td" style={{ fontFamily: 'var(--font-mono)', color: t.realized_pnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
-                      ₹{(t.realized_pnl || 0).toLocaleString('en-IN')}
-                    </td>
-                    <td className="portfolio-td" style={{ fontFamily: 'var(--font-mono)', color: t.realized_pct >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
-                      {t.realized_pct >= 0 ? '+' : ''}{t.realized_pct}%
-                    </td>
-                    <td className="portfolio-td">{t.holding_days}d</td>
-                    <td className="portfolio-td">
-                      <span className={`exit-reason exit-${t.exit_reason}`} style={{ fontSize: '0.7rem' }}>{t.exit_reason}</span>
-                    </td>
-                  </tr>
-                ))}
+                {history.map(t => {
+                  const isExpanded = expandedTradeId === t.id;
+                  const hasReflection = !!t.reflection_json;
+                  return (
+                    <React.Fragment key={t.id}>
+                      <tr
+                        className="portfolio-row"
+                        style={{ cursor: hasReflection ? 'pointer' : 'default' }}
+                        onClick={() => hasReflection && setExpandedTradeId(isExpanded ? null : t.id)}
+                      >
+                        <td className="portfolio-td" style={{ width: 24, color: 'var(--text-muted)' }}>
+                          {hasReflection ? (isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}
+                        </td>
+                        <td className="portfolio-td" style={{ fontWeight: 600 }}>
+                          {t.symbol}
+                          <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.setup_type}</span>
+                        </td>
+                        <td className="portfolio-td" style={{ fontFamily: 'var(--font-mono)' }}>₹{t.entry_price}</td>
+                        <td className="portfolio-td" style={{ fontFamily: 'var(--font-mono)' }}>₹{t.exit_price}</td>
+                        <td className="portfolio-td" style={{ fontFamily: 'var(--font-mono)', color: t.realized_pnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                          ₹{(t.realized_pnl || 0).toLocaleString('en-IN')}
+                        </td>
+                        <td className="portfolio-td" style={{ fontFamily: 'var(--font-mono)', color: t.realized_pct >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                          {t.realized_pct >= 0 ? '+' : ''}{t.realized_pct}%
+                        </td>
+                        <td className="portfolio-td">{t.holding_days}d</td>
+                        <td className="portfolio-td">
+                          <span className={`exit-reason exit-${t.exit_reason}`} style={{ fontSize: '0.7rem' }}>{t.exit_reason}</span>
+                        </td>
+                      </tr>
+                      {isExpanded && hasReflection && (
+                        <tr>
+                          <td colSpan={8} style={{ padding: 0, background: 'rgba(148,163,184,0.04)' }}>
+                            <ReflectionPanel reflectionJson={t.reflection_json} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -293,6 +315,83 @@ function Stat({ label, value, sub, tone }) {
         {value}
       </div>
       {sub && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function ReflectionPanel({ reflectionJson }) {
+  let r;
+  try { r = typeof reflectionJson === 'string' ? JSON.parse(reflectionJson) : reflectionJson; }
+  catch (_) { return <div style={{ padding: 12, fontSize: '0.78rem', color: 'var(--text-muted)' }}>Could not parse reflection.</div>; }
+  if (!r) return null;
+
+  const rating = r.setupRating ?? 5;
+  const ratingColor = rating >= 7 ? 'var(--profit)' : rating >= 4 ? 'var(--warning)' : 'var(--loss)';
+
+  return (
+    <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--text-muted)' }}>
+          <Brain size={13} /> Reflection
+        </div>
+        <span style={{
+          fontSize: '0.72rem', padding: '2px 8px', borderRadius: 4,
+          background: 'rgba(148,163,184,0.12)', color: ratingColor, fontWeight: 700,
+          fontFamily: 'var(--font-mono)',
+        }}>
+          Setup {rating}/10
+        </span>
+        {r.rMultiple != null && (
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            {r.rMultiple >= 0 ? '+' : ''}{r.rMultiple}R {r.targetR != null && <>/ target {r.targetR}R</>}
+          </span>
+        )}
+        <span style={{
+          fontSize: '0.7rem', padding: '2px 8px', borderRadius: 4,
+          background: r.wouldRetake ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+          color: r.wouldRetake ? 'var(--profit)' : 'var(--loss)', fontWeight: 600,
+        }}>
+          {r.wouldRetake ? '↻ Would retake' : '⌀ Would skip'}
+        </span>
+        {Array.isArray(r.tags) && r.tags.length > 0 && (
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {r.tags.map(tag => (
+              <span key={tag} style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: 3, background: 'rgba(56,189,248,0.1)', color: 'var(--accent-cyan)', fontFamily: 'var(--font-mono)' }}>{tag}</span>
+            ))}
+          </span>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+        <ReflectionBlock icon={<ThumbsUp size={12} />} label="What worked" text={r.whatWorked} color="var(--profit)" />
+        <ReflectionBlock icon={<ThumbsDown size={12} />} label="What didn't" text={r.whatDidntWork} color="var(--loss)" />
+      </div>
+
+      {r.lesson && (
+        <div style={{
+          display: 'flex', gap: 8, alignItems: 'flex-start',
+          padding: '10px 12px', borderRadius: 6,
+          background: 'rgba(245,158,11,0.08)', borderLeft: '3px solid var(--warning)',
+        }}>
+          <Lightbulb size={14} style={{ color: 'var(--warning)', marginTop: 2, flexShrink: 0 }} />
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', lineHeight: 1.45 }}>
+            <strong style={{ color: 'var(--warning)', marginRight: 6 }}>Lesson:</strong>{r.lesson}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReflectionBlock({ icon, label, text, color }) {
+  return (
+    <div style={{ padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.02)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: 0.6, color, marginBottom: 4, fontWeight: 600 }}>
+        {icon} {label}
+      </div>
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+        {text || '—'}
+      </div>
     </div>
   );
 }

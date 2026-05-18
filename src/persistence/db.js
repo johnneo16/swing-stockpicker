@@ -241,6 +241,9 @@ function safeAlter(sql) {
 }
 safeAlter(`ALTER TABLE positions ADD COLUMN prev_close REAL`);
 safeAlter(`ALTER TABLE positions ADD COLUMN day_change_pct REAL`);
+// reflection_json: deterministic post-trade reflection (heuristic, no AI yet)
+safeAlter(`ALTER TABLE trades ADD COLUMN reflection_json TEXT`);
+safeAlter(`ALTER TABLE trades ADD COLUMN reflection_at TEXT`);
 // asset_class: 'stock' | 'etf' | 'commodity' — defaults to 'stock' for backfill compatibility
 safeAlter(`ALTER TABLE trades ADD COLUMN asset_class TEXT DEFAULT 'stock'`);
 safeAlter(`ALTER TABLE daily_picks ADD COLUMN asset_class TEXT DEFAULT 'stock'`);

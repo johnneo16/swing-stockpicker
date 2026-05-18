@@ -10,9 +10,10 @@
  * Pure persistence + math. The exit *decision* logic lives in exitEngine.js.
  */
 
-import { tradesRepo, positionsRepo } from '../persistence/db.js';
+import { tradesRepo, positionsRepo, db } from '../persistence/db.js';
 import { fetchAngelOneLTP, isAngelOneConfigured } from '../engine/angelOneProvider.js';
 import { CONFIG } from '../engine/riskEngine.js';
+import { reflectOnTrade } from '../intelligence/tradeReflection.js';
 import yahooFinance from 'yahoo-finance2';
 
 const USE_ANGELONE = isAngelOneConfigured();
@@ -129,6 +130,20 @@ export function closePosition(tradeId, exitReason, exitPrice, exitDate = null) {
     quantity:   trade.quantity,
     entryDate:  trade.entry_date,
   });
+
+  // Generate deterministic reflection — runs synchronously after close
+  // so it's persisted before any UI re-fetch happens. ~1ms work.
+  try {
+    const closedTrade = tradesRepo.getById(tradeId); // re-read with exit fields
+    const reflection  = reflectOnTrade(closedTrade);
+    db.prepare(
+      `UPDATE trades SET reflection_json = ?, reflection_at = datetime('now') WHERE id = ?`
+    ).run(JSON.stringify(reflection), tradeId);
+  } catch (e) {
+    // Never let reflection failure break the close path
+    console.warn(`[reflection] Failed for trade ${tradeId}:`, e.message);
+  }
+
   return { trade, result };
 }
 
