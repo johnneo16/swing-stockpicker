@@ -18,49 +18,130 @@ let sessionData = null;
 let lastLoginTime = 0;
 const SESSION_TTL = 8 * 60 * 60 * 1000; // 8 hours
 
+// Singleton in-flight login promise — prevents the TOTP-duplicate race
+// where N parallel callers each independently generate a fresh OTP within
+// the same 30-second window, causing Angel One to reject all but one as
+// "OTP recently used" and surface as a session response without jwtToken.
+let loginPromise = null;
+let lastTotpAt = 0;
+const TOTP_MIN_GAP_MS = 31_000;  // Angel One TOTP validity = 30s
+
+// JWT disk cache — survives process restarts inside the 8-hour TTL.
+// Backtest scripts cold-start often; without this, each run re-logs in,
+// which slowly burns through TOTP rate quotas.
+const SESSION_CACHE_PATH = path.resolve(__dirname, '..', '..', 'data', 'angelone-session.json');
+
+function loadSessionFromDisk() {
+  try {
+    if (!fs.existsSync(SESSION_CACHE_PATH)) return null;
+    const j = JSON.parse(fs.readFileSync(SESSION_CACHE_PATH, 'utf8'));
+    if (!j?.jwt || !j?.savedAt) return null;
+    if (Date.now() - j.savedAt > SESSION_TTL) return null;
+    return j;
+  } catch (_) { return null; }
+}
+function saveSessionToDisk(jwt) {
+  try {
+    fs.mkdirSync(path.dirname(SESSION_CACHE_PATH), { recursive: true });
+    fs.writeFileSync(SESSION_CACHE_PATH, JSON.stringify({ jwt, savedAt: Date.now() }), { mode: 0o600 });
+  } catch (e) { /* non-fatal */ }
+}
+
 // Symbol token cache to avoid repeated searchScrip calls
 const symbolCache = new Map();
 
 /**
- * Initialize and authenticate with Angel One
+ * Initialize and authenticate with Angel One.
+ *
+ * Concurrency-safe: if a login is already in flight (from another caller),
+ * await it instead of starting a parallel one. Survives the TOTP-window
+ * race that produced the false "Login failed — check credentials" errors
+ * across the 78-stock parallel backtest loads.
  */
 async function ensureSession() {
   const now = Date.now();
 
+  // Fast path: cached in-memory session is fresh
   if (smartApi && sessionData && (now - lastLoginTime) < SESSION_TTL) {
     return smartApi;
   }
 
-  const apiKey = process.env.ANGELONE_API_KEY;
-  const clientId = process.env.ANGELONE_CLIENT_ID;
-  const password = process.env.ANGELONE_PASSWORD;
+  // Slow path: a login is already in flight — piggyback on it
+  if (loginPromise) return loginPromise;
+
+  // Try disk cache before doing TOTP login (saves quota on cold starts)
+  const cached = loadSessionFromDisk();
+  if (cached && !smartApi) {
+    try {
+      const api = new SmartAPI({ api_key: process.env.ANGELONE_API_KEY });
+      api.setAccessToken(cached.jwt);
+      // Probe with a cheap call — getProfile — to confirm jwt is still valid
+      const probe = await api.getProfile().catch(() => null);
+      if (probe?.status) {
+        smartApi = api;
+        sessionData = { data: { jwtToken: cached.jwt } };
+        lastLoginTime = cached.savedAt;
+        console.log(`🔐 Angel One: Restored cached session for ${process.env.ANGELONE_CLIENT_ID}`);
+        return smartApi;
+      }
+    } catch (_) { /* fall through to fresh login */ }
+  }
+
+  // Fresh login — guarded by the singleton promise
+  loginPromise = doLogin().finally(() => { loginPromise = null; });
+  return loginPromise;
+}
+
+async function doLogin() {
+  const apiKey     = process.env.ANGELONE_API_KEY;
+  const clientId   = process.env.ANGELONE_CLIENT_ID;
+  const password   = process.env.ANGELONE_PASSWORD;
   const totpSecret = process.env.ANGELONE_TOTP_SECRET;
 
   if (!apiKey || !clientId || !password || !totpSecret) {
     throw new Error('Angel One credentials not configured.');
   }
 
-  smartApi = new SmartAPI({ api_key: apiKey });
+  // Enforce min 31s gap between TOTP generations to avoid the "OTP
+  // recently used" rejection. If we logged in <31s ago, wait it out.
+  const sinceLast = Date.now() - lastTotpAt;
+  if (lastTotpAt > 0 && sinceLast < TOTP_MIN_GAP_MS) {
+    const wait = TOTP_MIN_GAP_MS - sinceLast;
+    console.log(`🔐 Angel One: waiting ${(wait/1000).toFixed(0)}s for fresh TOTP window`);
+    await new Promise(r => setTimeout(r, wait));
+  }
 
-  // Generate TOTP (newer versions of totp-generator return a Promise)
+  const api = new SmartAPI({ api_key: apiKey });
   const totpResult = await TOTP.generate(totpSecret);
   const otp = typeof totpResult === 'object' ? totpResult.otp : totpResult;
+  lastTotpAt = Date.now();
 
+  let session;
   try {
-    sessionData = await smartApi.generateSession(clientId, password, otp);
-
-    if (!sessionData || !sessionData.data?.jwtToken) {
-      throw new Error('Login failed — check credentials');
-    }
-
-    lastLoginTime = now;
-    console.log(`🔐 Angel One: Logged in as ${clientId}`);
-    return smartApi;
+    session = await api.generateSession(clientId, password, otp);
   } catch (error) {
     smartApi = null;
     sessionData = null;
     throw new Error(`Angel One login failed: ${error.message}`);
   }
+
+  const jwt = session?.data?.jwtToken;
+  if (!jwt) {
+    // Most common cause is a duplicate-OTP race (which our mutex should
+    // prevent) OR Angel One returned an empty success — surface that
+    // distinction so it's not misclassified as "credentials wrong".
+    const msg = session?.message || session?.errorcode || 'empty session response';
+    smartApi = null;
+    sessionData = null;
+    throw new Error(`Angel One login returned no jwtToken: ${msg}`);
+  }
+
+  smartApi = api;
+  sessionData = session;
+  lastLoginTime = Date.now();
+  saveSessionToDisk(jwt);
+  console.log(`🔐 Angel One: Logged in as ${clientId}`);
+  return smartApi;
 }
 
 /**
