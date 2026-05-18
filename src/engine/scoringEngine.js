@@ -114,6 +114,7 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   let patternScore = 0;
   if (signals.threeWhiteSoldiers) patternScore = 5;     // continuation pattern — no prior-trend req
   else if (signals.morningStar) patternScore = 5;
+  else if (signals.bullishMarubozu) patternScore = 5;   // Varsity ch.5 — pure momentum, no prior-trend req
   else if (signals.bullishEngulfing) patternScore = 4;
   else if (signals.hammer) patternScore = 3;
   else if (signals.dragonflyDoji) patternScore = 3;
@@ -139,6 +140,17 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   // confirmed by weekly trend earns +1; daily fighting weekly costs -2.
   if (signals.mtfBullish && signals.mtfAligned) structureScore += 1;
   if (signals.mtfBearish && !signals.nearLowerBB) structureScore -= 2;
+  // Fibonacci confluence bonus (Varsity ch.16): 61.8 = golden ratio (strongest)
+  if (signals.nearFib618) structureScore += 2;
+  else if (signals.nearFib50 || signals.nearFib382) structureScore += 1;
+  // Varsity-spec S/R confluence (ch.11): high-touch zone = strong support
+  if (signals.atGoldenSR) structureScore += 2;       // 5+ touches = "golden" zone
+  else if (signals.nearVarsitySupport) structureScore += 1;
+  // Dow pattern bonus (Varsity ch.18): completed reversal/continuation patterns
+  if (signals.doubleBottom) structureScore += 3;
+  if (signals.bullishFlag)  structureScore += 2;
+  if (signals.rangeBreakout) structureScore += 2;
+  if (signals.doubleTop)    structureScore -= 3;
   structureScore = Math.max(0, Math.min(structureScore, WEIGHTS.structure));
 
   // === TOTAL SCORE ===
@@ -160,9 +172,13 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   if (totalScore >= 70) riskLevel = 'Low';
   else if (totalScore < 45) riskLevel = 'High';
 
-  // === SETUP TYPE (analysis basis) ===
+  // === SETUP TYPE (analysis basis) — Dow patterns get priority ===
   let setupType = 'Trend Analysis';
-  if (signals.breakingOut && signals.strongTrend) setupType = 'Breakout + ADX Trend';
+  if (signals.doubleBottom)             setupType = 'Dow Double Bottom';
+  else if (signals.bullishFlag)         setupType = 'Dow Bullish Flag';
+  else if (signals.rangeBreakout)       setupType = 'Dow Range Breakout';
+  else if (signals.bullishMarubozu && signals.volumeAboveAvg) setupType = 'Bullish Marubozu';
+  else if (signals.breakingOut && signals.strongTrend) setupType = 'Breakout + ADX Trend';
   else if (signals.breakingOut) setupType = 'Breakout';
   else if (signals.threeWhiteSoldiers) setupType = 'Three White Soldiers';
   else if (signals.morningStar && signals.nearSupport) setupType = 'Morning Star Reversal';
@@ -375,6 +391,7 @@ function adxGate(trade) {
     'Trend Continuation', 'HH/HL Trend Continuation',
     'Breakout', 'Breakout + ADX Trend',
     'MACD Crossover', 'Three White Soldiers',
+    'Dow Bullish Flag', 'Dow Range Breakout', 'Bullish Marubozu',
   ];
   const meanRevSetups = [
     'Mean Reversion', 'Pullback / RSI Reversal',
@@ -416,10 +433,12 @@ function buildChecklist(signals, indicators, levels) {
   return {
     pattern:     !!(signals.anyBullishPattern || signals.threeWhiteSoldiers ||
                     signals.morningStar || signals.bullishEngulfing || signals.hammer ||
-                    signals.bullishHarami || signals.dragonflyDoji),
+                    signals.bullishHarami || signals.dragonflyDoji || signals.bullishMarubozu),
     priorTrend:  !!signals.priorTrendOk,    // Varsity ch.4-10: prior downtrend required
     volume:      !!(signals.volumeAboveAvg || signals.volumeSpike),
-    srLevel:     !!(signals.nearSupport || signals.breakingOut || signals.nearLowerBB),
+    // S/R: prefer Varsity zone match; fall back to legacy if not yet established
+    srLevel:     !!(signals.nearVarsitySupport || signals.breakingOut ||
+                    signals.nearSupport || signals.nearLowerBB),
     dow:         !!(signals.trendAligned || signals.inUptrend || signals.mtfBullish),
     riskReward:  (levels?.riskRewardRatio ?? 0) >= 1.5,
     indicators:  !!(signals.macdBullish && signals.rsiNeutralBullish), // both must confirm
@@ -435,6 +454,7 @@ function mtfGate(trade) {
     'Trend Continuation', 'HH/HL Trend Continuation',
     'Breakout', 'Breakout + ADX Trend', 'Three White Soldiers',
     'MACD Crossover',
+    'Dow Bullish Flag', 'Dow Range Breakout', 'Bullish Marubozu',
   ];
 
   if (trendingLongs.includes(setup) && mtf.weeklyTrend === 'down') {

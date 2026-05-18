@@ -18,21 +18,21 @@ Legend:
 |---|---|---|---|---|
 | 1-3 | Background / Intro / Chart Types | Foundational; "buy strength, sell weakness"; closing price is most sacred | We use closing price for all calcs | ✅ |
 | 4 | Candlesticks intro | Body = open-to-close; wicks = extremes; 3 assumptions: pattern, prior trend, flexibility | Detect 6 patterns but no prior-trend gate | 🟡 |
-| 5 | Single — Marubozu | Open=low, close=high (bull); ±0.2% shadow tolerance; range 1–10%; SL at low | Not detected | ❌ |
+| 5 | Single — Marubozu | Open=low, close=high (bull); ±0.2% shadow tolerance; range 1–10%; SL at low | Bullish + bearish Marubozu detected; shadows <5% range; body 1-10% | ✅ |
 | 6 | Single — Spinning Top / Doji | Indecision; trade 50% size, average in next day | Doji detected only; size logic not present | 🟡 |
 | 7 | Single — Hammer / Hanging Man / Shooting Star | Lower shadow ≥ 2× body; prior trend mandatory | Hammer detected (✓ ratio); no prior-trend gate | 🟡 |
 | 8 | Multi — Engulfing | P2 body must engulf P1 body; prior trend mandatory; SL at lowest-low/highest-high | Bullish Engulfing detected; no prior-trend gate | 🟡 |
 | 9 | Multi — Piercing / Dark Cloud / Harami | Bullish Harami: P2 inside P1, P2 open > P1 close, current close < P1 open | Bullish Harami detected | 🟡 |
 | 10 | Multi — Morning/Evening Star | 3-candle pattern with gaps; SL at lowest low | Morning Star detected | ✅ |
-| 11 | **Support & Resistance** | **≥3 touches well-spaced in time**; zones (not points); ±0.5% width; role reversal on break | Simple min/max of recent range with 3% proximity | 🟡 ⚠️ |
+| 11 | **Support & Resistance** | **≥3 touches well-spaced in time**; zones (not points); ±0.5% width; role reversal on break | Varsity zone detector: bucket pivots into ±0.5% bands, require ≥3 touches with ≥5 bars spacing, automatic role reversal. Legacy simpleSupport kept as fallback. | ✅ |
 | 12 | **Volumes** | **10-day** avg baseline; 4-cell price-volume table; high vol required for entry | We use **20-day** avg; threshold > 1.2× | 🟡 ⚠️ |
 | 13 | Moving Averages | EMA preferred; swing pairs 9/21 (ST), 25/50 (MT), 50/100 (LT) | 20/50/200 EMAs | 🟡 |
 | 14 | RSI | 30/70 OB/OS; author personal 20/80 | 35/70 thresholds; healthy 40-65 | ✅ |
 | 14 | MACD | 12-26-9 EMAs; bullish when MACD > signal | 12-26-9 EMAs; bullish-cross detected | ✅ |
 | 15 | Bollinger Bands | 20-SMA, 2 SD; mean-revert on touch; squeeze = pending move | 20-SMA, 2 SD; squeeze + mean-revert setups | ✅ |
-| 16 | **Fibonacci Retracements** | 23.6/38.2/50/61.8/78.6; 61.8 strongest; confluence with S/R | **Not implemented** | ❌ |
+| 16 | **Fibonacci Retracements** | 23.6/38.2/50/61.8/78.6; 61.8 strongest; confluence with S/R | 60-bar swing detection, all 5 levels, nearest-band signal (±1%); 61.8 gets +2 structure bonus, 50/38.2 get +1 | ✅ |
 | 17 | Dow Theory Pt 1 | 9 tenets; primary (years) / secondary (weeks-months) / minor (days); volume confirms | We have primary trend via EMA200; no phase tag | 🟡 |
-| 18 | **Dow Theory Pt 2 patterns** | Trading Range, Range Breakout, Flag, Double/Triple Top/Bottom | **Not detected** | ❌ |
+| 18 | **Dow Theory Pt 2 patterns** | Trading Range, Range Breakout, Flag, Double/Triple Top/Bottom | Double Top + Double Bottom, Bullish Flag, Range Breakout — all detected, emit as setupType + structure bonus. (Triple pending) | ✅ |
 | 19 | **TA Finale — 7-item checklist** | (see Part C below) | **5-item checklist on TradeCard** | 🟡 ⚠️ |
 | 20 | **Other indicators — ADX** | **ADX ≥ 25** = strong; <20 weak; +DI > −DI for long | ADX gate uses **20** floor; no +DI/-DI | 🟡 ⚠️ |
 | 21 | TradingView features | Tool tutorial | N/A | — |
@@ -111,15 +111,17 @@ Ranked by ratio of expected edge improvement to implementation cost:
 
 | Module | Chapters | Read in full | Implemented | Compliance |
 |---|---:|---:|---:|---:|
-| Technical Analysis | 22 | 15 | 12 of 22 rule-sets | **55%** |
+| Technical Analysis | 22 | 15 | 17 of 22 rule-sets | **77%** |
 | Fundamental Analysis | 16 | 9 | 4 of 16 rule-sets | **25%** |
 | Risk Management | 16 | TOC + 1 chapter | 6 (correlation, VaR, sizing, sector cap, killswitch, decay) | **38%** |
 | Trading Systems | 16 | TOC only | 5 (Sharpe, Sortino, SQN, MAR, backtester) | **31%** |
 | Sector Analysis | 17 | TOC only | 1 (sector cap) | **6%** |
 
-Aggregate engine vs Varsity: **~35% rule-by-rule compliance**. Strong
-on indicators (RSI/MACD/BB exact match), weak on Dow patterns, S/R
-construction, DCF, and the FA due-diligence 10-point list.
+Aggregate engine vs Varsity (post-Tier-2): **~45% rule-by-rule compliance**.
+TA now nearly comprehensive (77%) — exact match on indicators, candlesticks,
+Dow patterns, Fibonacci, S/R zones, MTF, ADX gate. Remaining gaps are in
+FA (DCF, CFO gate, GPM gate — all blocked on Screener scraper extension)
+and Sector Analysis per-sector KPIs.
 
 ---
 

@@ -75,12 +75,36 @@ export function analyzeTechnicals(quotes) {
   const support2       = pivotPoint - (pivotHigh - pivotLow);
   const simpleSupport  = Math.min(...recent.map(q => q.low));
   const simpleResistance = Math.max(...recent.map(q => q.high));
+
+  // Varsity ch.11 S/R zones — ≥3 touches at ~same price, well-spaced in time,
+  // ±0.5% zone width. Returns array of { center, lowBand, highBand, touches,
+  // type: 'support' | 'resistance' } sorted by touch count desc.
+  const srZones = computeVarsitySR(quotes, currentPrice);
+  const nearestSupportZone    = srZones.find(z => z.type === 'support'    && z.center < currentPrice);
+  const nearestResistanceZone = srZones.find(z => z.type === 'resistance' && z.center > currentPrice);
   const support        = Math.max(support1, support2);
   const resistance     = resistance1;
 
   const weeklySlope = ema20.length > 5
     ? (ema20[ema20.length - 1] - ema20[ema20.length - 5]) / ema20[ema20.length - 5] * 100
     : 0;
+
+  // ── FIBONACCI RETRACEMENTS (Varsity ch.16) ───────────────────────────────
+  // Identify the most recent significant swing high & swing low over the
+  // lookback window, compute the 23.6 / 38.2 / 50 / 61.8 / 78.6 retracement
+  // levels, and flag which one the current price is sitting on (within 1%).
+  // The 61.8% Golden Ratio is Varsity's "strongest" support level.
+  const fib = computeFibonacci(quotes, currentPrice);
+
+  // ── DOW PATTERNS (Varsity ch.18) ────────────────────────────────────────
+  // Detect classical Dow chart patterns over the last 60 trading days:
+  //   - Double Bottom (bullish reversal): two swing lows at ~same price,
+  //     well-spaced, with a peak between them
+  //   - Double Top (bearish reversal): mirror
+  //   - Flag continuation (bullish): big rally then short pullback in a
+  //     parallel channel — set up for next leg up
+  //   - Range Breakout: sustained consolidation followed by high-vol break
+  const dow = computeDowPatterns(quotes, currentPrice, volumeRatio);
 
   // ── MULTI-TIMEFRAME (MTF) CONFLUENCE ─────────────────────────────────────
   // Varsity TA "Finale" (ch.19) + Dow Theory (ch.17-18): daily setups should
@@ -137,6 +161,18 @@ export function analyzeTechnicals(quotes) {
     mtfBearish:       mtf.weeklyTrend === 'down',
     mtfAligned:       mtf.aligned,
 
+    // ── Fibonacci (Varsity ch.16) — at golden ratio support
+    nearFib618:       fib?.nearestLevel === '61.8',
+    nearFib50:        fib?.nearestLevel === '50',
+    nearFib382:       fib?.nearestLevel === '38.2',
+    nearAnyFib:       !!fib?.nearestLevel,
+
+    // ── Dow chart patterns (Varsity ch.18)
+    doubleBottom:     dow?.doubleBottom || false,
+    doubleTop:        dow?.doubleTop    || false,
+    bullishFlag:      dow?.bullishFlag  || false,
+    rangeBreakout:    dow?.rangeBreakout || false,
+
     // Trend strength (ADX)
     strongTrend:        adxValue > 25,
     weakTrend:          adxValue < 20,
@@ -167,6 +203,13 @@ export function analyzeTechnicals(quotes) {
     consolidating:  (simpleResistance - simpleSupport) / currentPrice < 0.05,
     breakingOut:    breakingOutSignal,
 
+    // ── Varsity-spec S/R (ch.11): ≥3 well-spaced touches, ±0.5% zone width
+    nearVarsitySupport:    !!nearestSupportZone &&
+                           (currentPrice - nearestSupportZone.center) / currentPrice < 0.04,
+    nearVarsityResistance: !!nearestResistanceZone &&
+                           (nearestResistanceZone.center - currentPrice) / currentPrice < 0.04,
+    atGoldenSR:            !!(nearestSupportZone && nearestSupportZone.touches >= 5),
+
     // ── Candlestick patterns (new)
     hammer:            patterns.hammer,
     bullishEngulfing:  patterns.bullishEngulfing,
@@ -174,6 +217,8 @@ export function analyzeTechnicals(quotes) {
     dragonflyDoji:     patterns.dragonflyDoji,
     threeWhiteSoldiers: patterns.threeWhiteSoldiers,
     bullishHarami:     patterns.bullishHarami,
+    bullishMarubozu:   patterns.bullishMarubozu,  // Varsity ch.5
+    bearishMarubozu:   patterns.bearishMarubozu,
     anyBullishPattern: patterns.anyBullish,
     priorTrendOk:      patterns.priorTrendOk,    // Varsity ch.4-10 prior-trend gate
     priorTrendPct:     patterns.priorTrendPct,
@@ -212,10 +257,16 @@ export function analyzeTechnicals(quotes) {
       } : null,
       weeklySlope:  Math.round(weeklySlope * 100) / 100,
       mtf,                                  // multi-timeframe weekly snapshot
+      fib,                                  // Fibonacci retracement levels + nearest
     },
+    srZones,                                  // Varsity ch.11 — full zone list w/ touch counts
     levels: {
       support:          Math.round(Math.min(support, simpleSupport)     * 100) / 100,
       resistance:       Math.round(Math.max(resistance, simpleResistance) * 100) / 100,
+      varsitySupport:    nearestSupportZone    ? Math.round(nearestSupportZone.center    * 100) / 100 : null,
+      varsityResistance: nearestResistanceZone ? Math.round(nearestResistanceZone.center * 100) / 100 : null,
+      varsitySupportTouches:    nearestSupportZone?.touches    ?? 0,
+      varsityResistanceTouches: nearestResistanceZone?.touches ?? 0,
       pivotPoint:       Math.round(pivotPoint  * 100) / 100,
       stopLoss:         Math.round(stopLoss    * 100) / 100,
       target:           Math.round(target      * 100) / 100,
@@ -236,6 +287,7 @@ function detectCandlestickPatterns(quotes) {
   const p = {
     hammer: false, bullishEngulfing: false, morningStar: false,
     dragonflyDoji: false, threeWhiteSoldiers: false, bullishHarami: false,
+    bullishMarubozu: false, bearishMarubozu: false,
     anyBullish: false,
   };
 
@@ -254,6 +306,21 @@ function detectCandlestickPatterns(quotes) {
 
   const body0 = body(c0), body1 = body(c1), body2 = body(c2);
   const rng0  = rng(c0),  rng1  = rng(c1),  rng2  = rng(c2);
+
+  // Marubozu — Varsity ch.5. Bull: open≈low, close≈high (no shadows).
+  // Tolerances: shadows ≤ 0.2% of body; body range 1-10% of price.
+  const c0Rng = c0.high - c0.low;
+  const c0BodyPct = c0.close > 0 ? body0 / c0.close * 100 : 0;
+  if (c0BodyPct >= 1 && c0BodyPct <= 10 && c0Rng > 0) {
+    const upperFrac = upper(c0) / c0Rng;
+    const lowerFrac = lower(c0) / c0Rng;
+    // Tolerance: shadows < 5% of total range
+    if (isBull(c0) && upperFrac < 0.05 && lowerFrac < 0.05) {
+      p.bullishMarubozu = true;
+    } else if (isBear(c0) && upperFrac < 0.05 && lowerFrac < 0.05) {
+      p.bearishMarubozu = true;
+    }
+  }
 
   // Hammer — long lower wick ≥ 2× body, tiny upper wick
   if (rng0 > 0 && body0 >= c0.close * 0.001 &&
@@ -297,7 +364,8 @@ function detectCandlestickPatterns(quotes) {
   }
 
   p.anyBullish = p.hammer || p.bullishEngulfing || p.morningStar ||
-                 p.dragonflyDoji || p.threeWhiteSoldiers || p.bullishHarami;
+                 p.dragonflyDoji || p.threeWhiteSoldiers || p.bullishHarami ||
+                 p.bullishMarubozu;
 
   // Varsity ch.4-10 cardinal rule: bullish reversal patterns are only valid
   // when preceded by a downtrend. Without this check, a hammer in the middle
@@ -412,6 +480,230 @@ function calculateOBVTrend(quotes) {
 // ─────────────────────────────────────────────────────────────────────────────
 // STRUCTURE-BASED STOP LOSS (replaces old ATR*1.5 shortcut)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VARSITY-SPEC SUPPORT / RESISTANCE ZONES — Varsity ch.11
+//
+// Replaces the naive min/max simpleSupport/simpleResistance with proper
+// touch-counting zones per Varsity's literal prescription:
+//
+//   "Identify at least 3 price action zones... well spaced in time...
+//    The price level is usually depicted in a range and not at a single
+//    price point. It is actually a zone or an area..."
+//
+// Algorithm:
+//   1. Collect every swing pivot (high or low) from the last 90 bars
+//   2. Bucket pivots into ±0.5% bands
+//   3. Count distinct touches per band; require ≥3 touches AND min spacing
+//      of 5 bars between consecutive touches in the same zone
+//   4. Classify each zone as 'support' if center < currentPrice, else
+//      'resistance'. After break, role-reversal happens automatically.
+//
+// Returns: [{ center, lowBand, highBand, touches, lastTouchIdx, type }]
+//          sorted by touch count (descending) — strongest zones first.
+// ─────────────────────────────────────────────────────────────────────────────
+function computeVarsitySR(quotes, currentPrice) {
+  if (!quotes || quotes.length < 30) return [];
+  const window = quotes.slice(-90);
+  const ZONE_WIDTH_PCT = 0.5;   // ±0.5% per Varsity ch.11
+  const MIN_TOUCHES    = 3;     // Varsity hard minimum
+  const MIN_SPACING    = 5;     // bars between touches in the same zone
+
+  // Find pivots — local highs and lows with 2-bar lookback
+  const pivots = [];
+  for (let i = 2; i < window.length - 2; i++) {
+    const h = window[i].high, l = window[i].low;
+    if (h > window[i-1].high && h > window[i-2].high && h > window[i+1].high && h > window[i+2].high) {
+      pivots.push({ idx: i, price: h });
+    }
+    if (l < window[i-1].low && l < window[i-2].low && l < window[i+1].low && l < window[i+2].low) {
+      pivots.push({ idx: i, price: l });
+    }
+  }
+  if (pivots.length < MIN_TOUCHES) return [];
+
+  // Bucket pivots into bands. Build a cluster around each pivot price
+  // and merge nearby ones.
+  const bands = [];   // { center, touches: [pivots], lowBand, highBand }
+  for (const p of pivots) {
+    // Find an existing band within zone width
+    let merged = false;
+    for (const b of bands) {
+      const distPct = Math.abs(p.price - b.center) / b.center * 100;
+      if (distPct <= ZONE_WIDTH_PCT) {
+        // Require min spacing from latest touch in this band
+        const lastTouchIdx = b.touches[b.touches.length - 1].idx;
+        if (p.idx - lastTouchIdx >= MIN_SPACING) {
+          b.touches.push(p);
+          // Recenter as touch-average
+          b.center = b.touches.reduce((s, t) => s + t.price, 0) / b.touches.length;
+        }
+        merged = true;
+        break;
+      }
+    }
+    if (!merged) {
+      bands.push({ center: p.price, touches: [p] });
+    }
+  }
+
+  // Keep only bands with ≥3 well-spaced touches
+  const validBands = bands.filter(b => b.touches.length >= MIN_TOUCHES);
+
+  return validBands
+    .map(b => ({
+      center:       Math.round(b.center * 100) / 100,
+      lowBand:      Math.round(b.center * (1 - ZONE_WIDTH_PCT / 100) * 100) / 100,
+      highBand:     Math.round(b.center * (1 + ZONE_WIDTH_PCT / 100) * 100) / 100,
+      touches:      b.touches.length,
+      lastTouchIdx: b.touches[b.touches.length - 1].idx,
+      type:         b.center < currentPrice ? 'support' : 'resistance',
+    }))
+    .sort((a, b) => b.touches - a.touches);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DOW CHART PATTERNS — Varsity ch.18
+// Classical reversal + continuation patterns from Dow Theory:
+//   - Double Bottom: two lows at ~same price (±2%), well-spaced (≥10 bars),
+//     with a peak ≥3% above between them. Confirmed when price > the peak.
+//   - Double Top: mirror image.
+//   - Bullish Flag: a strong rally (≥7% in <10 bars) followed by a brief
+//     pullback in a tight range (≤3% drawdown, ≤8 bars). High-probability
+//     continuation pattern.
+//   - Range Breakout: ≥15 bars in a ≤5% range, then breaks out on volume.
+// ─────────────────────────────────────────────────────────────────────────────
+function computeDowPatterns(quotes, currentPrice, volumeRatio) {
+  if (!quotes || quotes.length < 30) return null;
+  const window = quotes.slice(-60);
+  const highs = window.map(q => q.high);
+  const lows  = window.map(q => q.low);
+  const closes = window.map(q => q.close);
+
+  // Find local pivot points (swing highs/lows) with a 3-bar lookback/forward
+  const pivotHighs = [];
+  const pivotLows  = [];
+  for (let i = 3; i < window.length - 3; i++) {
+    const isHigh = highs[i] > highs[i-1] && highs[i] > highs[i-2] && highs[i] > highs[i-3] &&
+                   highs[i] > highs[i+1] && highs[i] > highs[i+2] && highs[i] > highs[i+3];
+    const isLow  = lows[i]  < lows[i-1]  && lows[i]  < lows[i-2]  && lows[i]  < lows[i-3] &&
+                   lows[i]  < lows[i+1]  && lows[i]  < lows[i+2]  && lows[i]  < lows[i+3];
+    if (isHigh) pivotHighs.push({ idx: i, price: highs[i] });
+    if (isLow)  pivotLows.push({  idx: i, price: lows[i]  });
+  }
+
+  let doubleBottom = false, doubleTop = false;
+  // Double Bottom: 2 most-recent lows within ±2%, spaced ≥10 bars, peak ≥3% between
+  if (pivotLows.length >= 2) {
+    const L = pivotLows.slice(-2);
+    const priceDiffPct = Math.abs(L[0].price - L[1].price) / L[0].price * 100;
+    const spacing = L[1].idx - L[0].idx;
+    if (priceDiffPct <= 2 && spacing >= 10) {
+      // Find peak between
+      const between = highs.slice(L[0].idx + 1, L[1].idx);
+      const peak = between.length ? Math.max(...between) : 0;
+      const peakLiftPct = (peak - L[0].price) / L[0].price * 100;
+      if (peakLiftPct >= 3 && currentPrice > peak) doubleBottom = true;
+    }
+  }
+  // Double Top: mirror
+  if (pivotHighs.length >= 2) {
+    const H = pivotHighs.slice(-2);
+    const priceDiffPct = Math.abs(H[0].price - H[1].price) / H[0].price * 100;
+    const spacing = H[1].idx - H[0].idx;
+    if (priceDiffPct <= 2 && spacing >= 10) {
+      const between = lows.slice(H[0].idx + 1, H[1].idx);
+      const valley = between.length ? Math.min(...between) : Infinity;
+      const dipPct = (H[0].price - valley) / H[0].price * 100;
+      if (dipPct >= 3 && currentPrice < valley) doubleTop = true;
+    }
+  }
+
+  // Bullish Flag: detect a recent strong rally followed by tight pullback
+  let bullishFlag = false;
+  if (window.length >= 20) {
+    // Look 5-15 bars ago for the rally start
+    const rallyEndIdx = window.length - 6;
+    const rallyStartIdx = window.length - 16;
+    if (rallyStartIdx >= 0 && rallyEndIdx > rallyStartIdx) {
+      const rallyGain = (closes[rallyEndIdx] - closes[rallyStartIdx]) / closes[rallyStartIdx] * 100;
+      if (rallyGain >= 7) {
+        // Last 5 bars should be a tight pullback (≤3% drop from rally peak)
+        const recent = closes.slice(-5);
+        const recentDrop = (Math.max(...recent) - currentPrice) / Math.max(...recent) * 100;
+        if (recentDrop >= 0 && recentDrop <= 3) bullishFlag = true;
+      }
+    }
+  }
+
+  // Range Breakout: last 15+ bars in a ≤5% range that just broke up on vol
+  let rangeBreakout = false;
+  if (window.length >= 20) {
+    const consol = closes.slice(-20, -1);
+    const cmin = Math.min(...consol), cmax = Math.max(...consol);
+    const rangePct = cmin > 0 ? (cmax - cmin) / cmin * 100 : 0;
+    if (rangePct <= 5 && currentPrice > cmax && volumeRatio >= 1.5) {
+      rangeBreakout = true;
+    }
+  }
+
+  return { doubleBottom, doubleTop, bullishFlag, rangeBreakout, pivotHighs: pivotHighs.length, pivotLows: pivotLows.length };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIBONACCI RETRACEMENTS — Varsity ch.16
+// Identify the most recent significant swing high and swing low, then
+// compute the 5 standard Fibonacci levels. Flag the nearest level the
+// current price is sitting on (within 1% tolerance), so downstream
+// scoring can give a confluence bonus for entries at the golden ratio.
+//
+// Direction convention:
+//   - If swingHigh comes AFTER swingLow → uptrend → retracements drop FROM
+//     swingHigh toward swingLow as percentages of the up-move
+//   - If swingLow comes AFTER swingHigh → downtrend → bounces rise FROM
+//     swingLow toward swingHigh as percentages of the down-move
+// ─────────────────────────────────────────────────────────────────────────────
+function computeFibonacci(quotes, currentPrice) {
+  if (!quotes || quotes.length < 30) return null;
+  // Look at the most recent 60 trading days for the dominant swing
+  const window = quotes.slice(-60);
+  let hiIdx = 0, loIdx = 0;
+  for (let i = 0; i < window.length; i++) {
+    if (window[i].high > window[hiIdx].high) hiIdx = i;
+    if (window[i].low  < window[loIdx].low ) loIdx = i;
+  }
+  const swingHigh = window[hiIdx].high;
+  const swingLow  = window[loIdx].low;
+  const range     = swingHigh - swingLow;
+  if (range <= 0) return null;
+
+  const uptrend = hiIdx > loIdx;
+  const ratios = { '23.6': 0.236, '38.2': 0.382, '50': 0.50, '61.8': 0.618, '78.6': 0.786 };
+  const levels = {};
+  for (const [name, r] of Object.entries(ratios)) {
+    // Retracement from swingHigh during uptrend = swingHigh - r × range
+    // Retracement from swingLow during downtrend = swingLow + r × range
+    levels[name] = uptrend ? swingHigh - r * range : swingLow + r * range;
+  }
+
+  // Find nearest level within 1% tolerance
+  let nearestLevel = null, nearestDistPct = Infinity;
+  for (const [name, lvl] of Object.entries(levels)) {
+    const distPct = Math.abs(currentPrice - lvl) / currentPrice * 100;
+    if (distPct < nearestDistPct) { nearestDistPct = distPct; nearestLevel = name; }
+  }
+  // Only flag if within 1%
+  if (nearestDistPct > 1.0) nearestLevel = null;
+
+  return {
+    swingHigh:  Math.round(swingHigh * 100) / 100,
+    swingLow:   Math.round(swingLow  * 100) / 100,
+    direction:  uptrend ? 'up' : 'down',
+    levels: Object.fromEntries(Object.entries(levels).map(([k, v]) => [k, Math.round(v * 100) / 100])),
+    nearestLevel,
+    nearestDistPct: Math.round(nearestDistPct * 100) / 100,
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MULTI-TIMEFRAME (MTF) CONFLUENCE — daily ↔ weekly trend alignment
