@@ -361,6 +361,7 @@ export default function App() {
   return (
     <div className="app">
       <IndexTicker marketData={marketData} />
+      <div className="index-ticker-spacer" aria-hidden="true" />
 
       {/* ---- Header ---- */}
       <header className="header">

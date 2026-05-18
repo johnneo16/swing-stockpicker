@@ -127,15 +127,29 @@ body::before {
   backdrop-filter: saturate(180%) blur(8px);
   -webkit-backdrop-filter: saturate(180%) blur(8px);
   border-bottom: 1px solid var(--border-subtle);
-  margin: 0 -24px 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   flex-wrap: nowrap;
-  /* Stick to top while scrolling — keeps Nifty/Sensex/Bank Nifty/Mood always visible */
-  position: sticky;
+  /* Pinned to the top while scrolling. position: fixed is used (instead of
+     sticky) because `body { overflow-x: hidden }` higher up breaks sticky
+     on Chromium-based browsers. A sibling spacer reserves the height. */
+  position: fixed;
   top: 0;
-  z-index: 50;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+
+/* Spacer to reserve the same vertical space the fixed ticker occupies,
+   so the rest of the page (header, tabs, content) starts below it.
+   Height kept in sync with the ticker's measured height (≈ 56px). */
+.index-ticker-spacer {
+  height: 56px;
+  width: 100%;
+}
+@media (max-width: 768px) {
+  .index-ticker-spacer { height: 64px; } /* accounts for slightly larger touch padding */
 }
 
 .ticker-item {
