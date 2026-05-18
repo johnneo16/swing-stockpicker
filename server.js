@@ -23,6 +23,10 @@ import { refreshRegime, getRegime, regimeBias } from './src/intelligence/regimeD
 import { orchestrator } from './src/scheduler/orchestrator.js';
 import { picksRepo, schedulerRepo, db } from './src/persistence/db.js';
 import { todayStatus, upcomingHolidays, nextTradingDays } from './src/scheduler/jobs.js';
+import { isAngelOneConfigured } from './src/engine/angelOneProvider.js';
+import fs from 'fs';
+
+const SERVER_BOOT_AT = Date.now();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -494,6 +498,78 @@ app.get('/api/picks/:date', (req, res) => {
 app.get('/api/health/db', (req, res) => {
   try { res.json(dbHealthCheck()); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+/**
+ * GET /api/health/macro — aggregated platform health snapshot
+ *   server uptime, memory, DB file size, scheduler last-firings, killswitch,
+ *   data counts, NSE market status.
+ */
+app.get('/api/health/macro', (req, res) => {
+  try {
+    const dbInfo = dbHealthCheck();
+    let dbSizeBytes = 0;
+    try { dbSizeBytes = fs.statSync(dbInfo.path).size; } catch (_) {}
+
+    const mem = process.memoryUsage();
+    const sched = orchestrator.status();
+    const killswitchTrippedAt = schedulerRepo.getSetting('killswitch:tripped_at') || null;
+    const killswitchReason    = schedulerRepo.getSetting('killswitch:reason') || null;
+
+    // Lightweight data counts (single-row aggregate queries — fast)
+    const counts = {
+      openPositions:   db.prepare(`SELECT COUNT(*) AS n FROM trades WHERE status='open'`).get().n,
+      closedTrades:    db.prepare(`SELECT COUNT(*) AS n FROM trades WHERE status='closed'`).get().n,
+      backtests:       db.prepare(`SELECT COUNT(*) AS n FROM backtest_runs`).get().n,
+      picksToday:      db.prepare(`SELECT COUNT(*) AS n FROM daily_picks WHERE pick_date = date('now')`).get().n,
+      reflections:     db.prepare(`SELECT COUNT(*) AS n FROM trades WHERE reflection_json IS NOT NULL`).get().n,
+      schedulerRuns24h: db.prepare(`SELECT COUNT(*) AS n FROM scheduler_log WHERE started_at >= datetime('now','-1 day')`).get().n,
+    };
+
+    res.json({
+      ok: true,
+      generatedAt: new Date().toISOString(),
+      server: {
+        uptimeSec:  Math.round((Date.now() - SERVER_BOOT_AT) / 1000),
+        bootedAt:   new Date(SERVER_BOOT_AT).toISOString(),
+        nodeVersion: process.version,
+        pid:        process.pid,
+        memory: {
+          rssMb:      +(mem.rss / 1024 / 1024).toFixed(1),
+          heapUsedMb: +(mem.heapUsed / 1024 / 1024).toFixed(1),
+          heapTotalMb:+(mem.heapTotal / 1024 / 1024).toFixed(1),
+        },
+      },
+      database: {
+        path:       dbInfo.path,
+        sizeMb:     +(dbSizeBytes / 1024 / 1024).toFixed(2),
+        tableCount: dbInfo.tables.length,
+      },
+      market: {
+        nseOpen:    isNSEMarketHours(),
+        ...todayStatus(),
+      },
+      scheduler: {
+        running:    sched.running,
+        jobCount:   sched.jobs.length,
+        jobs:       sched.jobs.map(j => ({
+          id: j.id, enabled: j.enabled, active: j.active,
+          lastRun: j.lastRun, cron: j.cron,
+        })),
+      },
+      killswitch: {
+        tripped: !!killswitchTrippedAt,
+        trippedAt: killswitchTrippedAt,
+        reason: killswitchReason,
+      },
+      providers: {
+        angelOneConfigured: isAngelOneConfigured(),
+      },
+      counts,
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 /**

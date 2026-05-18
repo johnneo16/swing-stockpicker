@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, startTransition } from
 import {
   Activity, BarChart3, Package, RefreshCw, Pause, Search, AlertCircle,
   Briefcase, CheckCircle2, XCircle, TrendingUp, TrendingDown, Target,
-  ArrowUpRight, ArrowDownRight, Sun, Moon, Info, ShieldAlert, TestTube2, Zap
+  ArrowUpRight, ArrowDownRight, Sun, Moon, Info, ShieldAlert, TestTube2, Zap, HeartPulse
 } from 'lucide-react';
 import TradeCard from './components/TradeCard.jsx';
 import PortfolioSummary from './components/PortfolioSummary.jsx';
@@ -15,6 +15,7 @@ import NotificationManager from './components/NotificationManager.jsx';
 const LivePositionsTab = React.lazy(() => import('./components/LivePositionsTab.jsx'));
 const BacktestsTab     = React.lazy(() => import('./components/BacktestsTab.jsx'));
 const TodaysPicksTab   = React.lazy(() => import('./components/TodaysPicksTab.jsx'));
+const MacroHealthDashboard = React.lazy(() => import('./components/MacroHealthDashboard.jsx'));
 
 const DEFAULT_CAPITAL = 50000;       // Stocks
 const DEFAULT_CAPITAL_ETF = 25000;   // ETFs (half-size bucket per portfolio design)
@@ -464,7 +465,7 @@ export default function App() {
 
       {/* ---- Tabs ---- */}
       <div className="tabs" id="main-tabs">
-        {['today', 'dashboard', 'trades', 'portfolio', 'live', 'backtests'].map(tab => (
+        {['today', 'dashboard', 'trades', 'portfolio', 'live', 'backtests', 'health'].map(tab => (
           <button
             key={tab}
             className={`tab ${activeTab === tab ? 'active' : ''}`}
@@ -475,7 +476,8 @@ export default function App() {
               : tab === 'trades'   ? <><BarChart3 size={14} className="tab-icon"/> {scanMode === 'etf' ? 'ETFs' : 'Trade Setups'}{activeTrades.length > 0 ? ` (${activeTrades.length})` : ''}{highConvictionOnly ? <span style={{ marginLeft: 4, fontSize: '0.6rem', color: 'var(--accent-cyan)', fontWeight: 700 }}>★</span> : null}</>
               : tab === 'portfolio'? <><Briefcase size={14} className="tab-icon"/> Portfolio</>
               : tab === 'live'     ? <><Target size={14} className="tab-icon"/> Live</>
-              :                       <><TestTube2 size={14} className="tab-icon"/> Backtests</>}
+              : tab === 'backtests'? <><TestTube2 size={14} className="tab-icon"/> Backtests</>
+              :                       <><HeartPulse size={14} className="tab-icon"/> Health</>}
           </button>
         ))}
       </div>
@@ -630,6 +632,13 @@ export default function App() {
       {activeTab === 'backtests' && (
         <React.Suspense fallback={<div className="loading-skeleton skeleton-card" />}>
           <BacktestsTab />
+        </React.Suspense>
+      )}
+
+      {/* ============ HEALTH TAB ============ */}
+      {activeTab === 'health' && (
+        <React.Suspense fallback={<div className="loading-skeleton skeleton-card" />}>
+          <MacroHealthDashboard />
         </React.Suspense>
       )}
 
