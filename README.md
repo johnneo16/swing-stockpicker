@@ -281,7 +281,8 @@ before firing.
 
 ### Requirements
 - Node.js 18+
-- Angel One account (optional but recommended; Yahoo is the fallback)
+- Angel One account (optional but recommended; Yahoo Finance is the fallback)
+- macOS (for the launchd background-service scripts)
 
 ### Environment
 
@@ -292,32 +293,51 @@ before firing.
 API_KEY=...
 CLIENT_ID=...
 PIN=...
-TOTP_SECRET=...
+TOTP_SECRET=...          # base32 secret from your Angel One TOTP setup
 
 # Server
 PORT=3001
-NODE_ENV=development
+NODE_ENV=production      # use "development" only when running npm run dev
 
 # Optional overrides
 SWINGPRO_DB=./data/swingpro.db   # default
 ```
 
-### Install & run
+### Development (local, hot-reload)
 
 ```bash
 npm install
 npm run server     # Express + orchestrator on :3001
-npm run dev        # Vite UI on :5173 (proxies /api to :3001)
+npm run dev        # Vite dev server on :5173 (proxies /api to :3001)
 ```
 
-For production: `npm run build` then serve `dist/` from the same Express
-process — it already statically serves the build.
+### Production (self-hosted on macOS)
 
-### Run as a Mac background service
+```bash
+npm install
+npm run build                    # compile React SPA into dist/
+bash scripts/install-launchd.sh  # registers all three launchd agents
+```
 
-See `scripts/com.swingpro.server.plist` for a launchd template that
-auto-starts the server on boot and restarts it on crash. Drop it in
-`~/Library/LaunchAgents/` and `launchctl load` it.
+The install script sets up:
+- **`com.swingpro.server`** — engine + API, restarts automatically on crash (KeepAlive)
+- **`com.swingpro.backup`** — daily DB backup at 17:30 IST (30-day rolling retention)
+- **`com.swingpro.watchdog`** — probes `/api/health/macro` every 5 min, auto-restarts on stall
+
+```bash
+# Verify everything is up
+launchctl list | grep swingpro
+curl -s http://localhost:3001/api/health/macro | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print('ok:', d['ok'])"
+
+# Open the UI
+open http://localhost:3001
+```
+
+To stop and remove all agents: `bash scripts/uninstall-launchd.sh`
+
+**Full ops reference** (daily checks, killswitch recovery, DB restore, new-machine
+install, troubleshooting): see [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 ---
 
@@ -332,8 +352,18 @@ src/
   scheduler/                     orchestrator, jobs, nseHolidays
   persistence/                   SQLite schema + repos
   components/                    React UI (tabs + cards + widgets)
+scripts/
+  install-launchd.sh             register all three macOS background agents
+  uninstall-launchd.sh           stop + remove all agents
+  backup-db.sh                   SQLite online backup (called by launchd agent)
+  healthcheck.sh                 health probe (called by watchdog agent)
+  com.swingpro.server.plist      launchd plist — main server (KeepAlive)
+  com.swingpro.backup.plist      launchd plist — daily backup at 17:30 IST
+  com.swingpro.watchdog.plist    launchd plist — 5-min health probe
 docs/
-  OUT_OF_SAMPLE_RESULTS.md       2025 validation findings
+  RUNBOOK.md                     ops runbook: daily checks, killswitch, restore
+  VARSITY_COMPLIANCE.md          scoring engine vs Zerodha Varsity audit
+  OUT_OF_SAMPLE_RESULTS.md       2025 out-of-sample validation findings
 data/
   swingpro.db                    local SQLite (gitignored)
 ```
