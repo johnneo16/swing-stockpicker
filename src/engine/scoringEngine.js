@@ -7,34 +7,27 @@ import { scoreFundamentals, generateFundamentalSummary } from './fundamentalAnal
  * Combines technical, fundamental, and market signals into a 0-100 confidence score.
  */
 
-// Scoring weights (total = 100) — re-balanced after deep Varsity audit.
-// Per Varsity ch.11 + Dow ch.17-18: PRICE ACTION at S/R zones and along
-// TRENDLINES does the major lifting. Indicators are confirmation only.
+// Scoring weights (total = 100) — REVERTED to the v2 baseline after the
+// v3 re-weighting empirically degraded performance:
+//   2022-2024 in-sample backtest: win 48.67% → 42.4%, exp +1.74% → +1.05%,
+//   maxDD 8.4% → 12.99%.
 //
-// Old → New comparison:
-//                 v3 Tier-1   v3 Tier-3 (now)
-//   priceAction      11           18    ← +7 (rejection wicks, traps, retest bounces)
-//   structure         5           12    ← +7 (trendlines + Varsity S/R + Dow + Fib)
-//   trend            13           10    ← -3 (still important, but indicator-derived)
-//   momentum         15           10    ← -5 (confirmation only)
-//   volume           10            8    ← -2 (confirmation only)
-//   psychology        9            5    ← -4 (folded into priceAction)
-//   patterns          5            6    ← +1 (Marubozu absorbed too)
-//   marketContext    10            9    ← -1 (small rebalance)
-//   fundamentals     10           10    same
-//   riskReward       12           12    same
-//   TOTAL           100          100
+// The new analysis modules (trendlines, rejection wicks, traps, Fibonacci,
+// Varsity S/R zones, Dow patterns, Marubozu) are RETAINED as additive
+// signals — they enrich scoring but no longer dominate. The two setup
+// types that empirically WORKED (Bear Trap Reversal +1.60%, Support
+// Rejection Wick +2.58%) remain as Tier-A classifications.
 const WEIGHTS = {
-  trend: 10,        // EMA stack / direction — indicator-derived, confirms direction only
-  momentum: 10,     // RSI/MACD — confirmation only per Varsity Finale
-  volume: 8,        // volume vs 10-day avg
-  priceAction: 18,  // ★ PRIMARY ★ S/R + trendline interaction + rejection / traps
+  trend: 13,
+  momentum: 15,
+  volume: 10,
+  priceAction: 11,
   riskReward: 12,
-  psychology: 5,    // RSI overext / day-change FOMO guard
-  fundamentals: 10, // ROE / P/E / D/E / ROCE
-  marketContext: 9, // Nifty trend + market mood
-  patterns: 6,      // candlestick patterns
-  structure: 12,    // ★ PRIMARY ★ HH/HL + OBV + trendline validity + Dow + Fib + Varsity-S/R
+  psychology: 9,
+  fundamentals: 10,
+  marketContext: 10,
+  patterns: 5,    // candlestick patterns
+  structure: 5,   // HH/HL + OBV + trendline + Dow + Fib + Varsity-S/R (additive, clamped here)
 };
 
 /**
@@ -75,27 +68,30 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   else volumeScore += 4;
   volumeScore = Math.min(volumeScore, WEIGHTS.volume);
 
-  // === PRICE ACTION SCORE (0-18) — THE BIG LIFTER ===
-  // Per Varsity ch.4 + ch.11: HOW price behaves at a level matters more
-  // than the level itself. These signals capture the actual battle —
-  // rejection wicks, traps, retests — that no indicator can see.
+  // === PRICE ACTION SCORE (0-11) — backtest-calibrated ===
+  // Cap reverted to 11 (was 18, which empirically degraded results).
+  // Bonuses retained ONLY for empirically positive signals:
+  //   Bear Trap (+1.60% exp on n=26) and Bullish Rejection (+2.58% on n=17).
+  // The trendline-touch and retest-bounce flags are NOT rewarded here —
+  // they didn't show edge in the 2022-2024 backtest.
   let priceActionScore = 0;
-  // Tier-A signals (massive — the cleanest setups in price action)
-  if (signals.bearTrap)         priceActionScore += 8;  // false breakdown reversed = high-conviction long
-  if (signals.bullishRejection) priceActionScore += 7;  // rejection wick at support
-  if (signals.retestBounce)     priceActionScore += 7;  // broken-and-retested level = textbook entry
-  if (signals.onTrendlineSupport && signals.trendlineSupportValid) priceActionScore += 6; // bouncing off validated trendline
-  // Tier-B signals (legacy / weaker)
-  if (signals.breakingOut)      priceActionScore += 5;
-  else if (signals.nearVarsitySupport || signals.nearSupport) priceActionScore += 3;
-  if (signals.bbSqueezing)      priceActionScore += 2;  // squeeze pending big move
+  // Empirical winners
+  if (signals.bearTrap)         priceActionScore += 7;  // proven
+  if (signals.bullishRejection && (signals.nearVarsitySupport || signals.atGoldenSR))
+                                priceActionScore += 7;  // proven
+  // Legacy signals (unchanged from v2)
+  if (signals.breakingOut)      priceActionScore += 6;
+  else if (signals.consolidating && signals.nearSupport) priceActionScore += 5;
+  else if (signals.nearSupport) priceActionScore += 3;
+  if (signals.bbSqueezing)      priceActionScore += 3;
   if (signals.nearLowerBB && signals.rsiOversold) priceActionScore += 2;
-  // Penalties — bearish price action
-  if (signals.bearishRejection) priceActionScore -= 4;
-  if (signals.bullTrap)         priceActionScore -= 6;  // false breakout reversed = stay out
-  if (signals.brokeTrendlineSupport) priceActionScore -= 5; // critical trendline break
-  if (signals.nearResistance && !signals.breakingOut) priceActionScore -= 2;
-  if (signals.nearUpperBB && signals.rsiOverbought) priceActionScore -= 2;
+  // Penalties — bearish price action (these are detection-only; the
+  // structureScore handles bearish-pattern penalties)
+  if (signals.bearishRejection) priceActionScore -= 3;
+  if (signals.bullTrap)         priceActionScore -= 5;
+  if (signals.brokeTrendlineSupport) priceActionScore -= 3;
+  if (signals.nearResistance && !signals.breakingOut) priceActionScore -= 3;
+  if (signals.nearUpperBB && signals.rsiOverbought) priceActionScore -= 3;
   priceActionScore = Math.max(0, Math.min(priceActionScore, WEIGHTS.priceAction));
 
   // === RISK-REWARD SCORE (0-12) ===
@@ -179,11 +175,16 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   // Varsity-spec S/R (ch.11): touch count drives weight
   if (signals.atGoldenSR) structureScore += 2;       // 5+ touches = "golden" zone
   else if (signals.nearVarsitySupport) structureScore += 1;
-  // Dow patterns (ch.18): completed reversal/continuation patterns
-  if (signals.doubleBottom) structureScore += 2;
-  if (signals.bullishFlag)  structureScore += 2;
-  if (signals.rangeBreakout) structureScore += 2;
-  if (signals.doubleTop)    structureScore -= 3;
+  // Dow patterns (ch.18) — backtest-tuned weights:
+  // - Double Bottom (-1.35% exp on n=15) and Range Breakout (-2.66% on n=14):
+  //   zero bonus, the signal is detected but doesn't earn structure points.
+  //   Synthetic tests passed; real data is noisier. Keeping detection for
+  //   downstream UI / future re-validation.
+  // - Bullish Flag is kept at +1 — neutral edge (-0.80% on n=9) but
+  //   pairs well with a validated trendline (its setupType is gated to
+  //   only fire WITH trendline support).
+  if (signals.bullishFlag && signals.trendlineSupportValid)  structureScore += 1;
+  if (signals.doubleTop)    structureScore -= 3;             // bearish — keep penalty
   structureScore = Math.max(0, Math.min(structureScore, WEIGHTS.structure));
 
   // === TOTAL SCORE ===
@@ -205,24 +206,28 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   if (totalScore >= 70) riskLevel = 'Low';
   else if (totalScore < 45) riskLevel = 'High';
 
-  // === SETUP TYPE — price action FIRST, then patterns, then indicators ===
-  // Per Varsity ch.11 + Dow: trendline/S/R/rejection setups outweigh anything
-  // an indicator can produce. Classification order reflects this hierarchy.
+  // === SETUP TYPE — empirical-winner-driven classification ===
+  // Backtest 2022-2024 ranking of new v3 setups (by per-trade expectancy):
+  //   ✓ Support Rejection Wick    n=17  win=53%  exp=+2.58%   ← KEEP as Tier-A
+  //   ✓ Bear Trap Reversal        n=26  win=46%  exp=+1.60%   ← KEEP as Tier-A
+  //   ~ At Validated Trendline    n=42  win=45%  exp=+0.77%   ← tightened gating below
+  //   ~ Bullish Flag              n= 9  win=44%  exp=-0.80%   ← demoted, no priority routing
+  //   ✗ Trendline Retest Bounce   n= 8  win=38%  exp=-0.42%   ← DROPPED from priority
+  //   ✗ Dow Double Bottom         n=15  win=33%  exp=-1.35%   ← DROPPED
+  //   ✗ Dow Range Breakout        n=14  win=29%  exp=-2.66%   ← DROPPED
   let setupType = 'Trend Analysis';
-  // Tier-A — price action at validated structure (the major lifters)
-  if (signals.bearTrap)                                  setupType = 'Bear Trap Reversal';
-  else if (signals.retestBounce)                         setupType = 'Trendline Retest Bounce';
-  else if (signals.bullishRejection && signals.atGoldenSR) setupType = 'Rejection at Golden S/R';
-  else if (signals.bullishRejection && signals.nearVarsitySupport) setupType = 'Support Rejection Wick';
-  else if (signals.onTrendlineSupport && signals.trendlineSupportValid && signals.bullishRejection) setupType = 'Trendline Bounce';
-  else if (signals.onTrendlineSupport && signals.trendlineSupportValid) setupType = 'At Validated Trendline';
-  // Tier-B — Dow patterns (price action over a window)
-  else if (signals.doubleBottom)                         setupType = 'Dow Double Bottom';
-  else if (signals.bullishFlag)                          setupType = 'Dow Bullish Flag';
-  else if (signals.rangeBreakout)                        setupType = 'Dow Range Breakout';
-  // Tier-C — candlestick patterns
-  else if (signals.bullishMarubozu && signals.volumeAboveAvg) setupType = 'Bullish Marubozu';
-  else if (signals.breakingOut && signals.strongTrend)   setupType = 'Breakout + ADX Trend';
+  // Tier-A — empirically validated winners
+  if (signals.bearTrap)                                                   setupType = 'Bear Trap Reversal';
+  else if (signals.bullishRejection && (signals.nearVarsitySupport || signals.atGoldenSR)) setupType = 'Support Rejection Wick';
+  // Tier-B — At Validated Trendline only when also confirmed by price-action signal
+  else if (signals.onTrendlineSupport && signals.trendlineSupportValid &&
+           (signals.bullishRejection || signals.bearTrap || signals.atGoldenSR))
+                                                                          setupType = 'Trendline + Price Action';
+  // Tier-C — Marubozu / Bullish Flag (preserve, neutral edge)
+  else if (signals.bullishMarubozu && signals.volumeAboveAvg)             setupType = 'Bullish Marubozu';
+  else if (signals.bullishFlag && signals.trendlineSupportValid)          setupType = 'Bullish Flag';
+  // Tier-D — legacy indicator-driven (kept; Run #10 baseline performance OK)
+  else if (signals.breakingOut && signals.strongTrend)                    setupType = 'Breakout + ADX Trend';
   else if (signals.breakingOut) setupType = 'Breakout';
   else if (signals.threeWhiteSoldiers) setupType = 'Three White Soldiers';
   else if (signals.morningStar && signals.nearSupport) setupType = 'Morning Star Reversal';
@@ -392,16 +397,19 @@ export function rankAndFilterTrades(scoredStocks, totalCapital = null, options =
   // Sort by confidence score descending
   valid.sort((a, b) => b.confidenceScore - a.confidenceScore);
 
-  // Pass 1: strict — R:R >= 1.5, score >= 50, portfolio checks.
-  // Threshold 50 was chosen from a 3-year × 198-stock backtest sweep
-  // (2022-01-01 → 2024-12-31) where it produced the best risk-adjusted
-  // return (Sharpe 1.35, expectancy +2.46%/trade, profit factor 1.83,
-  // max drawdown 7.11%). Lower thresholds (e.g. 28) include too many
-  // marginal setups; higher thresholds (70+) reduce diversification.
+  // Pass 1: strict — R:R >= 1.5, score >= 65, portfolio checks.
+  // Threshold raised from 50 to 65 based on Run #15 (2022-2024) per-bucket
+  // expectancy data:
+  //   70+    n= 34  win=56%  exp=+3.94%    ← elite — beats v2 baseline (+1.74%)
+  //   60-69  n= 99  win=44%  exp=+0.14%    ← break-even, gets eaten by commission
+  //   50-59  n= 30  win=40%  exp=-0.09%    ← actively losing
+  // After 0.2% round-trip commission, the 60-69 bucket goes negative.
+  // Threshold 65 keeps the elite bucket + the top half of the middle one
+  // (Pass-2 fills any remaining slots with no floor for diversification).
   const selectedTrades = [];
   for (const trade of valid) {
     if (trade.riskRewardRatio < 1.5) continue;
-    if (trade.confidenceScore < 50) continue;
+    if (trade.confidenceScore < 65) continue;
     // ADX trend-strength gate (Varsity TA ch.20): refuse trending setups
     // in chop (ADX < 20). Mean-reversion setups don't need ADX strength;
     // they actually prefer chop.

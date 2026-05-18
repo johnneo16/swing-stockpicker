@@ -187,8 +187,8 @@ export function analyzeTechnicals(quotes) {
     // ── Trendlines (the major lifters)
     onTrendlineSupport:    trendlines?.uptrend?.touchingNow || false,
     onTrendlineResistance: trendlines?.downtrend?.touchingNow || false,
-    trendlineSupportValid: (trendlines?.uptrend?.touches || 0) >= 3,
-    trendlineResistValid:  (trendlines?.downtrend?.touches || 0) >= 3,
+    trendlineSupportValid: trendlines?.uptrend?.valid    || false,
+    trendlineResistValid:  trendlines?.downtrend?.valid  || false,
     brokeTrendlineSupport: trendlines?.uptrend?.brokenDown || false,
     brokeTrendlineResist:  trendlines?.downtrend?.brokenUp || false,
 
@@ -601,12 +601,20 @@ function fitTrendline(pivots, window, currentPrice, kind) {
   const refPrice = p1.price > 0 ? p1.price : 1;
   const slopePctPerBar = slope / refPrice * 100;
 
+  // Validation tightened after backtest: ≥3 touches alone was too lax
+  // (42 "validated" trendlines at +0.77% expectancy = noise fits).
+  // Require ≥4 touches AND meaningful slope (≥0.1% per bar magnitude)
+  // to filter spurious lines on noisy daily data.
+  const MIN_TOUCHES = 4;
+  const MIN_SLOPE_PCT_PER_BAR = 0.1;
+  const valid = touches >= MIN_TOUCHES && Math.abs(slopePctPerBar) >= MIN_SLOPE_PCT_PER_BAR;
+
   return {
     p1: { idx: p1.idx, price: Math.round(p1.price * 100) / 100 },
     p2: { idx: p2.idx, price: Math.round(p2.price * 100) / 100 },
     projectedAtNow: Math.round(projectedAtNow * 100) / 100,
     touches,
-    valid: touches >= 3,
+    valid,
     touchingNow,
     distNowPct: Math.round(distNowPct * 100) / 100,
     brokenDown, brokenUp,
