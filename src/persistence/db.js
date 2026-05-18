@@ -472,6 +472,58 @@ export const tradesRepo = {
       curve.push({ date: (t.exit_date || '').slice(0, 10), equity: Math.round(equity * 100) / 100 });
     }
 
+    // ── Trading-system grade metrics (Varsity Trading Systems + Risk Mgmt) ──
+    // Sharpe = mean(returns) / std(returns) × √n (annualized roughly via √252)
+    // Sortino = mean / downside-std × √n  (only penalizes downside vol)
+    // SQN = expectancy × √n / std(returns)  (Van Tharp's System Quality Number)
+    // MAR = totalReturnPct / maxDrawdownPct                (Calmar variant)
+    const pctReturns = closed.map(t => (t.realized_pct || 0) / 100);
+    const meanR = pctReturns.length ? pctReturns.reduce((a, b) => a + b, 0) / pctReturns.length : 0;
+    const variance = pctReturns.length
+      ? pctReturns.reduce((s, r) => s + (r - meanR) ** 2, 0) / pctReturns.length
+      : 0;
+    const stdR = Math.sqrt(variance);
+    const downside = pctReturns.filter(r => r < 0);
+    const downsideStd = downside.length
+      ? Math.sqrt(downside.reduce((s, r) => s + r * r, 0) / downside.length)
+      : 0;
+    const sharpe   = stdR > 0       ? +(meanR / stdR       * Math.sqrt(252)).toFixed(2) : null;
+    const sortino  = downsideStd>0  ? +(meanR / downsideStd * Math.sqrt(252)).toFixed(2) : null;
+    const sqn      = stdR > 0       ? +((meanR / stdR) * Math.sqrt(closed.length)).toFixed(2) : null;
+    const totalReturnPct = (equity - startingCapital) / startingCapital * 100;
+    const mar      = maxDD > 0 ? +(totalReturnPct / maxDD).toFixed(2) : null;
+
+    // ── System Decay Monitor ────────────────────────────────────────────────
+    // Compare recent-window expectancy to historical expectancy.
+    // If recent N trades' expectancy drops > 1σ below the trailing baseline,
+    // raise a 'decay' flag. Surfaces engine drift before account drawdown.
+    const decay = (() => {
+      if (closed.length < 12) return { status: 'insufficient_data', recentN: 0 };
+      const recentN = Math.min(10, Math.floor(closed.length / 2));
+      const recent  = closed.slice(-recentN);
+      const baseline = closed.slice(0, closed.length - recentN);
+      if (baseline.length < 6) return { status: 'insufficient_data', recentN };
+
+      const recentExp   = recent.reduce((s, t) => s + (t.realized_pct || 0), 0) / recent.length;
+      const baselineExp = baseline.reduce((s, t) => s + (t.realized_pct || 0), 0) / baseline.length;
+      const baselineStd = Math.sqrt(
+        baseline.reduce((s, t) => s + (((t.realized_pct || 0) - baselineExp)) ** 2, 0) / baseline.length
+      );
+      const drift = baselineStd > 0 ? (recentExp - baselineExp) / baselineStd : 0;
+      let status = 'stable';
+      if (drift < -1.5) status = 'severe_decay';
+      else if (drift < -1.0) status = 'decay_warning';
+      else if (drift > 1.0) status = 'improving';
+      return {
+        status,
+        recentN,
+        recentExpectancyPct:   +recentExp.toFixed(2),
+        baselineExpectancyPct: +baselineExp.toFixed(2),
+        baselineStd:           +baselineStd.toFixed(2),
+        driftSigma:            +drift.toFixed(2),
+      };
+    })();
+
     // By setup type
     const bySetup = {};
     for (const t of closed) {
@@ -508,6 +560,12 @@ export const tradesRepo = {
       maxDrawdownPct: Math.round(maxDD * 100) / 100,
       finalEquity:    Math.round(equity * 100) / 100,
       startingCapital,
+      sharpe,
+      sortino,
+      sqn,
+      mar,
+      totalReturnPct: +totalReturnPct.toFixed(2),
+      decay,
       bySetup,
       byExit,
       equityCurve:    curve.slice(-100),

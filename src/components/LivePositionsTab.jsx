@@ -175,6 +175,35 @@ export default function LivePositionsTab({ capital = 50000, activeClass = 'stock
             <Stat label="Max Drawdown" value={`-${stats.maxDrawdownPct}%`} tone="loss" />
             <Stat label="Avg Hold" value={`${stats.avgHoldingDays}d`} />
           </div>
+          {/* System-grade metrics (Varsity Trading Systems + Risk Mgmt) */}
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>
+              System-Grade Metrics
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 14 }}>
+              <Stat label="Sharpe" value={stats.sharpe ?? '—'} sub="risk-adj. return" tone={(stats.sharpe || 0) > 1 ? 'profit' : (stats.sharpe || 0) < 0 ? 'loss' : ''} />
+              <Stat label="Sortino" value={stats.sortino ?? '—'} sub="downside-adj." tone={(stats.sortino || 0) > 1.5 ? 'profit' : (stats.sortino || 0) < 0 ? 'loss' : ''} />
+              <Stat label="SQN" value={stats.sqn ?? '—'} sub={sqnGrade(stats.sqn)} tone={(stats.sqn || 0) > 2.5 ? 'profit' : (stats.sqn || 0) < 1 ? 'loss' : ''} />
+              <Stat label="MAR" value={stats.mar ?? '—'} sub="return / maxDD" tone={(stats.mar || 0) > 0.5 ? 'profit' : (stats.mar || 0) < 0 ? 'loss' : ''} />
+              <Stat label="Total Return" value={`${stats.totalReturnPct >= 0 ? '+' : ''}${stats.totalReturnPct}%`} tone={stats.totalReturnPct >= 0 ? 'profit' : 'loss'} />
+            </div>
+          </div>
+          {/* System decay alarm */}
+          {stats.decay && (stats.decay.status === 'decay_warning' || stats.decay.status === 'severe_decay') && (
+            <div style={{
+              marginTop: 12, padding: '10px 12px', borderRadius: 6,
+              background: stats.decay.status === 'severe_decay' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
+              borderLeft: `3px solid ${stats.decay.status === 'severe_decay' ? 'var(--loss)' : 'var(--warning)'}`,
+              fontSize: '0.82rem', lineHeight: 1.5,
+            }}>
+              <strong style={{ color: stats.decay.status === 'severe_decay' ? 'var(--loss)' : 'var(--warning)' }}>
+                ⚠ System {stats.decay.status === 'severe_decay' ? 'decay (severe)' : 'decay warning'}:
+              </strong>{' '}
+              Last {stats.decay.recentN} trades' expectancy {stats.decay.recentExpectancyPct}% is{' '}
+              {Math.abs(stats.decay.driftSigma)}σ below the baseline {stats.decay.baselineExpectancyPct}%.{' '}
+              Consider re-backtesting + tightening entry filters before opening new positions.
+            </div>
+          )}
         </div>
       )}
 
@@ -317,6 +346,18 @@ function Stat({ label, value, sub, tone }) {
       {sub && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>{sub}</div>}
     </div>
   );
+}
+
+function sqnGrade(sqn) {
+  // Van Tharp's SQN grading bands
+  if (sqn == null) return '—';
+  if (sqn > 7)   return 'holy grail';
+  if (sqn > 5)   return 'superb';
+  if (sqn > 3)   return 'excellent';
+  if (sqn > 2.5) return 'good';
+  if (sqn > 1.6) return 'average';
+  if (sqn > 1)   return 'below avg';
+  return 'broken';
 }
 
 function ReflectionPanel({ reflectionJson }) {
