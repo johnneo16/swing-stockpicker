@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './src/logger.js';   // M1.3: install structured-logging console shim early
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
