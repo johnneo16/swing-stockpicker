@@ -294,6 +294,11 @@ export function rankAndFilterTrades(scoredStocks, totalCapital = null, options =
   for (const trade of valid) {
     if (trade.riskRewardRatio < 1.5) continue;
     if (trade.confidenceScore < 50) continue;
+    // ADX trend-strength gate (Varsity TA ch.20): refuse trending setups
+    // in chop (ADX < 20). Mean-reversion setups don't need ADX strength;
+    // they actually prefer chop.
+    const adxBlock = adxGate(trade);
+    if (adxBlock) { trade.blockedReason = adxBlock; continue; }
     const validation = validateTrade(trade, selectedTrades, totalCapital, options);
     if (validation.valid) {
       trade.validationWarnings = validation.warnings;
@@ -321,6 +326,45 @@ export function rankAndFilterTrades(scoredStocks, totalCapital = null, options =
 
   const portfolio = calculatePortfolioSummary(selectedTrades, totalCapital);
   return { trades: selectedTrades, portfolio };
+}
+
+/**
+ * ADX trend-strength gate — Varsity TA module ch.20.
+ *
+ * Returns a blocking reason (string) if the trade should be refused, or
+ * null if the trade passes. Setup-type aware:
+ *   - Trending setups (Trend Continuation, Breakout, HH/HL, MACD Crossover)
+ *     require ADX ≥ 20. Chop kills these.
+ *   - Mean-reversion setups (Mean Reversion, Pullback, Hammer/Engulfing at
+ *     Support, Morning Star) are happy with ADX < 25 (they need a range,
+ *     not a trend).
+ *   - Squeeze/structure setups are neutral.
+ *
+ * The threshold of 20 is Varsity's textbook ADX trend-onset level.
+ */
+function adxGate(trade) {
+  const adx = trade.indicators?.adx;
+  if (adx == null) return null;        // no ADX available — let it pass
+  const setup = trade.setupType || '';
+
+  const trendingSetups = [
+    'Trend Continuation', 'HH/HL Trend Continuation',
+    'Breakout', 'Breakout + ADX Trend',
+    'MACD Crossover', 'Three White Soldiers',
+  ];
+  const meanRevSetups = [
+    'Mean Reversion', 'Pullback / RSI Reversal',
+    'Hammer at Support', 'Engulfing at Support', 'Morning Star Reversal',
+    'OBV Bullish Divergence',
+  ];
+
+  if (trendingSetups.includes(setup) && adx < 20) {
+    return `ADX ${adx} < 20: ${setup} requires a real trend (chop kills trending setups)`;
+  }
+  if (meanRevSetups.includes(setup) && adx > 30) {
+    return `ADX ${adx} > 30: ${setup} needs a range, not a runaway trend`;
+  }
+  return null;
 }
 
 function generateWhyWorks(signals, indicators, fundResult) {
