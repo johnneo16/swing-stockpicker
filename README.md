@@ -1,147 +1,233 @@
-# 🚀 SwingPro — AI-Powered NSE Swing Trading Platform
+# SwingPro — NSE Swing Trading Platform
 
-<div align="center">
+A self-hosted, rule-based swing trading platform for the Indian stock and ETF
+markets. Built around a 10-factor Wall-Street-grade scoring engine, a
+walk-forward backtester, a paper-trading lifecycle, and a background
+orchestrator that runs the whole loop unattended.
 
-**Institutional-grade AI swing trading system for the Indian stock market**
-
-[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
-[![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=white)](https://react.dev/)
-[![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
-[![Angel One](https://img.shields.io/badge/Angel_One-SmartAPI-FF9900?style=for-the-badge&logoColor=white)](https://smartapi.angelbroking.com/)
-
-[Overview](#-overview) • [Architecture](#-architecture) • [AI Scoring](#-ai-scoring-engine) • [Risk Engine](#-risk--money-management) • [Hosting](#-hosting--deployment)
-
-</div>
+It does not give buy/sell calls. It identifies, scores, sizes, journals,
+and reflects on swing-trade ideas (3–15 day horizon) so you can study
+what works in your market — and where the engine is drifting.
 
 ---
 
-## 📸 Screenshots
+## What it does
 
-### Dashboard — Dual-Mode (Stocks & ETFs)
-![Dashboard](docs/screenshots/dashboard.png)
-
-### Portfolio Tracking & Sector Exposure
-![Portfolio](docs/screenshots/portfolio.png)
-
----
-
-## ✨ Overview
-
-SwingPro is a **professional-grade financial analytical platform** designed to identify high-probability swing trading setups (3–15 day horizon) in the NSE market. 
-
-Unlike retail tools, SwingPro focuses on **Objective Rule-Based Trading**. It eliminates emotional bias by combining:
-1.  **Multi-timeframe technical signals** from Angel One SmartAPI.
-2.  **High-integrity fundamental metrics** scraped directly from Screener.in.
-3.  **Hedge-fund-grade risk management** (Kelly-inspired position sizing).
-4.  **AI-driven confidence scoring** to rank and prioritize trades.
+| Pillar | Modules |
+| --- | --- |
+| **Scan & rank** | 10-factor scoring (trend, momentum, volume, structure, candlesticks, OBV, fundamentals, regime, R:R, psychology) over the NSE universe + a curated ETF universe |
+| **Risk & sizing** | ATR-aware position sizing, sector caps, killswitch, per-class capital pools (stocks ₹50K, ETFs ₹25K) |
+| **Backtest** | Walk-forward simulator with warmup, asset-class isolation, equity curve, drawdown, expectancy, profit factor — saved as runs you can browse |
+| **Paper trading** | Auto-tracked picks open as paper positions; the exit engine runs the full lifecycle (stops, BE moves, partials, trails, time stops, gap handling) |
+| **Reflection** | Every closed trade gets a deterministic reflection (whatWorked / didn't / lesson / setup rating / would-retake) stored on the trade row |
+| **Predicted vs actual** | Live widget that compares paper-journal stats to the most-recent backtest baseline — catches engine drift early |
+| **Notifications** | Browser-native push for new picks, exits, and scheduler events (polling-based, no service worker) |
+| **Macro health** | Single-pane ops dashboard: uptime, DB size, per-job last firings, killswitch, provider status |
+| **NSE-aware** | Cron jobs check the 2025–26 NSE holiday calendar before firing |
 
 ---
 
-## 🏗️ System Architecture
+## Architecture
 
-SwingPro uses a decoupled monolithic structure designed for low-latency analysis and robust data ingestion.
-
-```mermaid
-graph TD
-    subgraph "External Data Layers"
-        A1[Angel One SmartAPI] -- "Tick-by-Tick / OHLC 90d" --> B
-        S1[Screener.in Scraper] -- "ROCE, ROE, PE, DY" --> B
-    end
-
-    subgraph "SwingPro Alpha Backend (Node.js)"
-        B[Data Fetcher Service] --> C{Engine Room}
-        C --> D[Technical Analysis Engine]
-        C --> E[Fundamental Alpha Engine]
-        D & E --> F[AI Scoring Engine]
-        F --> G[Risk & Position Manager]
-    end
-
-    subgraph "Institutional UI (React)"
-        G -- "JSON API / Websockets" --> H[Live Dashboard]
-        H --> I[Nifty Sentiment Hub]
-        H --> J[Trade Setup Cards]
-        H --> K[Portfolio Analytics]
-    end
+```
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│ Angel One    │  │ Yahoo (fb)   │  │ Screener.in  │
+│ SmartAPI     │  │              │  │ (fundamentals)│
+└──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+       └─────────────────┼─────────────────┘
+                         ▼
+              ┌────────────────────┐
+              │  dataFetcher       │
+              │  + scoringEngine   │
+              │  + riskEngine      │
+              └─────────┬──────────┘
+                        ▼
+     ┌──────────────────────────────────────┐
+     │  Orchestrator (node-cron, holiday-   │
+     │  aware): pre-market, intraday refresh,│
+     │  exit cycle, EOD reconciliation       │
+     └─────────┬──────────────────┬─────────┘
+               ▼                  ▼
+       ┌──────────────┐   ┌──────────────┐
+       │ positionTrkr │   │ exitEngine   │
+       │ (paper)      │   │              │
+       └──────┬───────┘   └──────┬───────┘
+              └─────────┬────────┘
+                        ▼
+              ┌────────────────────┐
+              │ SQLite (better-    │
+              │ sqlite3) + repos   │
+              └─────────┬──────────┘
+                        ▼
+              ┌────────────────────┐
+              │ Express + React 18 │
+              │ Tabs: Today /      │
+              │ Dashboard / Trades │
+              │ / Portfolio / Live │
+              │ / Backtests /Health│
+              └────────────────────┘
 ```
 
----
-
-## 🧠 AI Scoring Engine
-
-The heart of SwingPro is its **8-Factor Scoring System (0–100)**, which weights technical momentum against fundamental health and market context.
-
-| Factor | Weight | Key Indicators Checked |
-| :--- | :--- | :--- |
-| **Trend Alignment** | 15% | EMA 20/50/200 Slope & Stacking |
-| **Momentum** | 18% | RSI (14) Mean Reversion & MACD Crossovers |
-| **Volume Profile** | 12% | Relative Volume (RVOL) vs 20-day Average |
-| **Price Action** | 13% | Bollinger Band Squeezes & Horizontal Breakouts |
-| **Risk-Reward** | 12% | Distance to Support vs Upside Target (Min 1:1.5) |
-| **Psychology** | 10% | RSI Overextension & Day Change Dampening |
-| **Fundamentals** | 10% | ROCE, Debt-to-Equity, and Revenue Growth |
-| **Market Context**| 10% | Nifty 50 Trend & Institutional Hand-holding |
+All state is local: SQLite (`data/swingpro.db`), no cloud, no paid host.
 
 ---
 
-## 💰 Risk & Money Management
+## The scoring engine
 
-Capital preservation is the #1 priority. The engine enforces strict rules to prevent "blowing up" the account.
+10 factors, normalized to 0–100, weighted, then ranked. The engine emits
+a structured trade card (entry, stop, target, R:R, est days, setup type,
+sector exposure, regime tag, confidence band).
 
-- **Capital Allocation**: Managed portfolio of ₹50,000 (standard local baseline).
-- **Max Risk Per Trade**: Capped at **2.0%** of total capital.
-- **Position Sizing**: Automatically calculated based on the distance between Entry and Stop Loss (ATR-adjusted).
-- **Concentration Limit**: Max **20%** capital per trade and max **3 positions** per sector.
-- **Dynamic Liquidity**: Maintains a **15% cash reserve** for emergency adjustments.
+Setup types it identifies include:
+- Trend Continuation
+- Breakout Pullback
+- Mean Reversion
+- Bollinger Squeeze
+- Earnings Drift
+- Sector Rotation
+- ETF Trend / ETF Mean Reversion
 
----
-
-## 🚀 Hosting & Deployment
-
-SwingPro is optimized for the following free-tier stack:
-
-- **Frontend**: [Vercel](https://vercel.com) (Vite/React optimized).
-- **Backend API**: [Render](https://render.com) (Free Tier Web Services).
-- **Automation**: `totp-generator` handles Angel One 2FA automation during server-side login.
-- **Deployment Strategy**: 
-    - The backend uses a `render.yaml` configuration for zero-downtime deployment.
-    - Frontend is deployed via GitHub CI/CD using the root `vercel.json`.
+The engine intentionally produces few signals on weak days. If nothing
+clears the confidence threshold, the Today tab shows nothing — and that
+is the correct behavior.
 
 ---
 
-## 🛠️ Development Setup
+## Risk management
 
-### 1. Environment Configuration
-Create a `.env` file in the root directory:
+Three layers, every one of which can refuse a trade:
+
+1. **Capacity** — sector caps, total open positions, regime gating.
+2. **Capital** — per-class pools (stocks ₹50K, ETFs ₹25K), 2% max risk
+   per trade, 15% cash reserve.
+3. **Killswitch** — trips the pre-market job if the rolling P&L drawdown
+   crosses the configured threshold; resets only via UI button.
+
+Position sizing is ATR-aware. The exit engine moves stops to break-even
+when a position hits +1R, books partials at +2R, then trails the rest.
+Time stops fire if the trade meanders past its estimated holding window.
+
+---
+
+## Out-of-sample validation
+
+The engine is validated as not curve-fit. Same config:
+
+- In-sample (2024): expectancy **+1.74%/trade**
+- Out-of-sample (2025): expectancy **+1.75%/trade**
+
+See `docs/OUT_OF_SAMPLE_RESULTS.md` for the methodology and per-bucket
+breakdown.
+
+Realistic expectation when paper-traded live: **8–16% annualized** on
+a ₹50K stock pool, with drawdowns reaching 6–10%. Anyone promising
+more from a rule-based system is selling something.
+
+---
+
+## The orchestrator
+
+`src/scheduler/orchestrator.js` runs ~10 cron jobs (Asia/Kolkata):
+
+| Job | Schedule | Purpose |
+| --- | --- | --- |
+| pre-market | 08:45 | Refresh universe, regime, earnings calendar |
+| morning scan | 09:30 | First stock + ETF scan, auto-track picks |
+| intraday refresh | every 30m | Mark-to-market open positions |
+| exit cycle | every 15m | Apply exit rules to open positions |
+| EOD reconcile | 16:00 | Close day, write equity-curve point |
+| weekly backtest | Sat 06:00 | Rolling walk-forward refresh |
+
+Every job checks `isNonTradingDay()` (weekend + 2025/26 NSE holiday list)
+before firing.
+
+---
+
+## UI tabs
+
+- **Today** — auto-tracked picks for today, blocked-with-reason list
+- **Dashboard** — top 5 trade cards
+- **Trades** — full ranked list, stocks/ETF toggle, conviction filter
+- **Portfolio** — sector exposure, cash deployment, risk used
+- **Live** — paper positions, P&L, equity curve, predicted-vs-actual,
+  setup performance breakdown, closed-trades table with expandable
+  reflection rows
+- **Backtests** — runs browser with per-run trade list
+- **Health** — uptime, memory, DB, per-job cron status, killswitch,
+  data counts
+
+---
+
+## Setup
+
+### Requirements
+- Node.js 18+
+- Angel One account (optional but recommended; Yahoo is the fallback)
+
+### Environment
+
+`.env` in the project root:
+
 ```env
-# Angel One SmartAPI
-API_KEY=your_key
-CLIENT_ID=your_id
-PIN=your_pin
-TOTP_SECRET=your_16_char_secret
+# Angel One SmartAPI (optional — Yahoo Finance falls back if missing)
+API_KEY=...
+CLIENT_ID=...
+PIN=...
+TOTP_SECRET=...
 
-# Server Config
+# Server
 PORT=3001
 NODE_ENV=development
+
+# Optional overrides
+SWINGPRO_DB=./data/swingpro.db   # default
 ```
 
-### 2. Running Locally
+### Install & run
+
 ```bash
-# Install dependencies
 npm install
+npm run server     # Express + orchestrator on :3001
+npm run dev        # Vite UI on :5173 (proxies /api to :3001)
+```
 
-# Start Alpha Backend
-npm run server
+For production: `npm run build` then serve `dist/` from the same Express
+process — it already statically serves the build.
 
-# Start UI Dashboard
-npm run dev
+### Run as a Mac background service
+
+See `scripts/com.swingpro.server.plist` for a launchd template that
+auto-starts the server on boot and restarts it on crash. Drop it in
+`~/Library/LaunchAgents/` and `launchctl load` it.
+
+---
+
+## Repo layout
+
+```
+server.js                        Express + API routes
+src/
+  engine/                        scoring, risk, data fetching, providers
+  intelligence/                  regime detector, earnings, reflection
+  lifecycle/                     positionTracker, exitEngine
+  scheduler/                     orchestrator, jobs, nseHolidays
+  persistence/                   SQLite schema + repos
+  components/                    React UI (tabs + cards + widgets)
+docs/
+  OUT_OF_SAMPLE_RESULTS.md       2025 validation findings
+data/
+  swingpro.db                    local SQLite (gitignored)
 ```
 
 ---
 
-## ⚠️ Disclaimer
-SwingPro is an **educational tool**. It does not provide financial advice. Trading in the Indian stock market involves significant risk. Always perform your own due diligence.
+## Disclaimer
 
----
+This is an educational and research platform. Nothing it produces is
+financial advice. Trading the NSE involves the real possibility of
+losing money. Paper-trade for at least a quarter before considering
+real capital, and even then, size down and re-validate.
 
-## 📄 License
-MIT License - Copyright (c) 2024 Arindam Chowdhury.
+## License
+
+MIT — © Arindam Chowdhury

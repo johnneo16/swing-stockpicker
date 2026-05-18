@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SwingPro launchd agent — runs the Express + orchestrator process
+  as a user-level background service on macOS.
+
+  Install:
+    1. Edit the marked placeholders below (NODE_BIN, PROJECT_DIR).
+       The defaults work for an nvm-installed Node and the repo at
+       ~/Development/Web Dev/Swing Stockpicker Prototype.
+    2. Copy to ~/Library/LaunchAgents/com.swingpro.server.plist
+    3. launchctl load -w ~/Library/LaunchAgents/com.swingpro.server.plist
+
+  Manage:
+    launchctl list | grep swingpro       # is it running?
+    launchctl stop  com.swingpro.server  # stop (will auto-restart if KeepAlive)
+    launchctl unload ~/Library/LaunchAgents/com.swingpro.server.plist
+
+  Logs:
+    tail -F ~/Library/Logs/swingpro.out.log
+    tail -F ~/Library/Logs/swingpro.err.log
+
+  Behaviour:
+    - RunAtLoad: starts on user login
+    - KeepAlive (SuccessfulExit=false): restarts only if it crashes
+    - Throttle: minimum 10s between restarts to avoid crash-loop spam
+    - WorkingDirectory: cwd so `data/swingpro.db` resolves correctly
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.swingpro.server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- NODE_BIN: absolute path to the node binary. Find yours with `which node`. -->
+        <string>/Users/arindamchowdhury/.nvm/versions/node/v20.19.2/bin/node</string>
+        <string>server.js</string>
+    </array>
+
+    <!-- PROJECT_DIR: absolute path to the repo root. -->
+    <key>WorkingDirectory</key>
+    <string>/Users/arindamchowdhury/Development/Web Dev/Swing Stockpicker Prototype</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NODE_ENV</key>
+        <string>production</string>
+        <key>PORT</key>
+        <string>3001</string>
+        <!-- Add other env vars here if you don't want to rely on the .env file -->
+        <key>PATH</key>
+        <string>/Users/arindamchowdhury/.nvm/versions/node/v20.19.2/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/arindamchowdhury/Library/Logs/swingpro.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/arindamchowdhury/Library/Logs/swingpro.err.log</string>
+
+    <!-- Run only when the user is logged in (user agent, not daemon) -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
