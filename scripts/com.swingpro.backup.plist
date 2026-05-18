@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SwingPro daily DB backup launchd agent.
+
+  Fires every day at 17:30 IST (12:00 UTC) — after the 16:20 daily-summary
+  job has written the EOD snapshot. Calls scripts/backup-db.sh which uses
+  SQLite's online .backup command (safe with the server running), copies
+  to ~/SwingProBackups/YYYY-MM-DD/, and prunes anything older than 30 days.
+
+  Install:
+    cp scripts/com.swingpro.backup.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.swingpro.backup.plist
+    launchctl list | grep swingpro.backup       # verify
+
+  Manage:
+    launchctl start com.swingpro.backup         # run now
+    launchctl unload ~/Library/LaunchAgents/com.swingpro.backup.plist
+
+  Logs:
+    tail -F ~/Library/Logs/swingpro-backup.log
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.swingpro.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/arindamchowdhury/Development/Web Dev/Swing Stockpicker Prototype/scripts/backup-db.sh</string>
+    </array>
+
+    <!-- 12:00 UTC = 17:30 IST. Adjust StartCalendarInterval to suit. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>12</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Don't run as a daemon — only when user is logged in (interactive) -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/arindamchowdhury/Library/Logs/swingpro-backup.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/arindamchowdhury/Library/Logs/swingpro-backup.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
