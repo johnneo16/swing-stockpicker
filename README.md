@@ -72,35 +72,147 @@ All state is local: SQLite (`data/swingpro.db`), no cloud, no paid host.
 
 ---
 
-## The scoring engine
+## The scoring engine — what it evaluates
 
-10 factors, normalized to 0–100, weighted, then ranked. The engine emits
-a structured trade card (entry, stop, target, R:R, est days, setup type,
-sector exposure, regime tag, confidence band).
+The engine combines a **10-factor 0–100 confidence score** with **3 hard
+pre-rank gates** and a **5-point Varsity checklist** shown on every card.
+This is the entire basis on which it shortlists or refuses a trade.
 
-Setup types it identifies include:
-- Trend Continuation
-- Breakout Pullback
-- Mean Reversion
-- Bollinger Squeeze
-- Earnings Drift
-- Sector Rotation
-- ETF Trend / ETF Mean Reversion
+### A. The 10 weighted factors (0–100)
+
+| # | Factor | Weight | Concrete signals checked |
+| --- | --- | --- | --- |
+| 1 | **Trend Alignment** | 13 | Price > EMA20 > EMA50; EMA200 stack; EMA20 + EMA50 slopes rising |
+| 2 | **Momentum** | 15 | RSI(14) zone 40–65 (healthy bullish); MACD bullish + histogram rising; MACD fresh crossover |
+| 3 | **Volume Profile** | 10 | RVOL > 1.2× 20d-avg (above-avg) or > 2.0× (spike); volume drying flagged |
+| 4 | **Price Action** | 11 | Bollinger squeeze; horizontal breakout above resistance with volume |
+| 5 | **Risk–Reward** | 12 | Target/stop ratio: 3.0×→12 pts, 2.5×→10, 2.0×→7, 1.5×→3, <1.5×→0 |
+| 6 | **Psychology** | 9 | RSI > 75 penalty; dayChange > 5% penalty (FOMO guard); multi-signal confluence bonus |
+| 7 | **Fundamentals** | 10 | Scraped from Screener.in: ROCE, ROE, debt/equity, revenue growth, profit margin, PE |
+| 8 | **Market Context** | 10 | Nifty trend (bullish/bearish/neutral); market mood; regime detector output |
+| 9 | **Candlestick Patterns** | 5 | Three White Soldiers, Morning Star, Bullish Engulfing, Hammer, Dragonfly Doji, Bullish Harami |
+| 10 | **Market Structure + OBV** | 5 | Higher-Highs / Higher-Lows confirmed; OBV trend rising; OBV bullish divergence |
+
+Total score must reach **≥ 50** to enter Pass 1 (strict). Below 50 a Pass-2
+fallback fills remaining slots with the best-available, tagged as low
+confidence.
+
+### B. Hard pre-rank gates (every gate must pass)
+
+| Gate | Rule | Source |
+| --- | --- | --- |
+| **R:R floor** | riskRewardRatio ≥ 1.5 | Varsity TA ch.11 |
+| **Confidence floor** | totalScore ≥ 50 | Backtest-tuned (3yr × 198 stocks sweep) |
+| **ADX trend-strength** | Trending setups (Trend Continuation, Breakout, MACD Crossover, Three White Soldiers) refused when ADX < 20. Mean-reversion setups refused when ADX > 30. | Varsity TA ch.20 |
+| **MTF confluence** | Trending longs refused when weekly trend is confirmed DOWN (resampled weekly EMA20+50 stack + slope) | Varsity TA Finale ch.19 + Dow Theory ch.17–18 |
+| **Sector cap** | Max 3 positions per sector | Risk Engine |
+| **Pairwise correlation** | New open refused if 60d return correlation with any existing position > 0.75 | Varsity Risk Mgmt ch.3–5 |
+| **Capital + cash reserve** | Per-class capital pool, 15% min cash reserve, 2% max risk/trade | Risk Engine |
+| **Killswitch** | Pre-market disabled when rolling DD > 8% or over-leveraged | Risk Engine |
+| **Earnings blackout** | Auto-block names with results in next 5 trading days | NSE board-meetings calendar |
+| **Regime gating** | Score nudge ±10 + size multiplier 0.4–1.4× based on detected regime (bullish_trending, choppy, risk_off_drawdown, etc.) | Regime Detector |
+
+### C. Per-pick Varsity 5-gate checklist (shown on every TradeCard)
+
+A transparent green/grey 5-dot strip on the card, so you see exactly
+which Varsity pillar each pick clears:
+
+1. **Trend** — daily trend direction confirmed (EMA stack / HH-HL / weekly bullish)
+2. **Candlestick** — recognized bullish pattern present
+3. **S/R** — entry near support or fresh breakout level
+4. **Volume** — above-average volume confirms the move
+5. **R:R** — risk-reward ≥ 1.5
+
+Source: Varsity Technical Analysis module Finale chapter (ch.19).
+
+### D. Setup types the engine recognizes
+
+Each pick is tagged with one setup type, used downstream for ADX gating,
+MTF gating, and per-setup performance tracking:
+
+- Trend Continuation / HH/HL Trend Continuation
+- Breakout / Breakout + ADX Trend
+- Three White Soldiers
+- Morning Star Reversal / Engulfing at Support / Hammer at Support
+- MACD Crossover
+- OBV Bullish Divergence
+- Pullback / RSI Reversal
+- Bollinger Squeeze / Mean Reversion
+- HH/HL Trend / Consolidation + Support
+- Volume Surge
+- (ETF variants of the above for the ETF universe)
+
+### E. Position sizing & risk math
+
+- **ATR-aware sizing**: position scaled inversely to ATR/price ratio
+  (high-vol stocks get smaller positions; low-vol stocks get larger)
+- **Confidence bump**: high-conviction trades (score ≥ 70) get a small
+  size multiplier; low-confidence get cut
+- **Stop loss**: structure-based — swing low minus ATR buffer, with
+  guard rails (never wider than 2× ATR, never tighter than 0.5× ATR)
+- **Target**: resistance-based — next swing high or pivot R1, falling
+  back to ATR × multiple when no resistance is mapped
+- **Holding-days estimate**: priceMoveNeeded / (0.5 × ATR per day)
+- **Per-class capital pools**: stocks ₹50K, ETFs ₹25K
+- **Cash reserve**: 15% of pool always kept idle for repair/scale-in
+- **Max risk per trade**: 2% of pool
+
+### F. Portfolio-level risk (Varsity Risk-Mgmt module)
+
+Beyond per-trade sizing, the engine continuously monitors the portfolio:
+
+- **95% 1-day VaR** (historical method) over the 60-day window —
+  shown on Health tab, red flag when > 4% of capital
+- **Correlation matrix** of all open positions — max pair surfaced;
+  red flag when any pair > 0.75
+- **Sector exposure** — already capped at 3 per sector
+- **Killswitch** — trips automatically on drawdown breach or
+  over-leverage; disables pre-market job until reset
+- **System Decay Monitor** — z-score of recent-window expectancy vs
+  baseline; alarms when recent < baseline − 1σ (catches regime change
+  before account drawdown)
+
+### G. System-grade metrics (Live tab & Backtests)
+
+Reported in addition to win-rate / expectancy / profit-factor:
+
+| Metric | Formula | Good ≥ |
+| --- | --- | --- |
+| **Sharpe** | mean(returns) / std × √252 | 1.0 |
+| **Sortino** | mean / downside-std × √252 | 1.5 |
+| **SQN** (Van Tharp) | (mean / std) × √n | 2.5 = good, 5 = superb |
+| **MAR ratio** | totalReturnPct / maxDrawdownPct | 0.5 |
+
+### H. The trading-school basis
+
+The evaluation criteria above are not invented — they map directly to
+specific chapters of **Zerodha Varsity**, India's most-respected free
+trading curriculum:
+
+- **Technical Analysis** (22 ch) → factors 1-4, 9; candlestick set; ADX gate (ch.20); 5-gate checklist (ch.19); MTF (ch.19 + Dow ch.17-18)
+- **Trading Systems** (16 ch) → backtester design, system-grade metrics, decay monitor
+- **Risk Management & Trading Psychology** (16 ch) → variance/covariance/correlation matrix (ch.3-5), VaR (ch.10), position sizing (ch.11-13), Kelly (ch.14), bias tagging (ch.15-16)
+- **Fundamental Analysis** (16 ch) → factor 7 (ROCE/ROE/DE/revenue growth/margin)
+- **Sector Analysis** (17 ch) → sector cap rule + sector rotation in regime detector
 
 The engine intentionally produces few signals on weak days. If nothing
-clears the confidence threshold, the Today tab shows nothing — and that
-is the correct behavior.
+clears all the gates, the Today tab shows nothing — and that is the
+correct behavior.
 
 ---
 
 ## Risk management
 
-Three layers, every one of which can refuse a trade:
+Five layers, every one of which can refuse a trade:
 
-1. **Capacity** — sector caps, total open positions, regime gating.
+1. **Capacity** — sector caps (3 / sector), total open positions, regime gating.
 2. **Capital** — per-class pools (stocks ₹50K, ETFs ₹25K), 2% max risk
    per trade, 15% cash reserve.
-3. **Killswitch** — trips the pre-market job if the rolling P&L drawdown
+3. **Correlation** — 60d return correlation gate (refuses opens > 0.75
+   with any existing position; Varsity Risk-Mgmt ch.3-5).
+4. **Portfolio VaR** — 95% 1-day Value-at-Risk monitored continuously;
+   flagged when > 4% of capital (Varsity Risk-Mgmt ch.10).
+5. **Killswitch** — trips the pre-market job if the rolling P&L drawdown
    crosses the configured threshold; resets only via UI button.
 
 Position sizing is ATR-aware. The exit engine moves stops to break-even
