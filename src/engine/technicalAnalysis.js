@@ -79,6 +79,13 @@ export function analyzeTechnicals(quotes) {
     ? (ema20[ema20.length - 1] - ema20[ema20.length - 5]) / ema20[ema20.length - 5] * 100
     : 0;
 
+  // ── MULTI-TIMEFRAME (MTF) CONFLUENCE ─────────────────────────────────────
+  // Varsity TA "Finale" (ch.19) + Dow Theory (ch.17-18): daily setups should
+  // confirm against the weekly trend. Resample daily → weekly, compute weekly
+  // EMA20/50 stack + slope. The setupType-aware MTF gate in scoringEngine uses
+  // mtf.aligned / mtf.weeklyTrend.
+  const mtf = computeMTF(quotes, currentPrice);
+
   // ── WALL STREET-LEVEL ANALYSIS ────────────────────────────────────────────
 
   const patterns    = detectCandlestickPatterns(quotes);
@@ -121,6 +128,11 @@ export function analyzeTechnicals(quotes) {
     ema20Rising:      currentEma20 > prevEma20,
     ema50Rising:      currentEma50 > prevEma50,
     weeklyUptrend:    weeklySlope > 0.5,
+
+    // ── Multi-timeframe confluence (Varsity TA Finale ch.19 + Dow ch.17-18)
+    mtfBullish:       mtf.weeklyTrend === 'up',
+    mtfBearish:       mtf.weeklyTrend === 'down',
+    mtfAligned:       mtf.aligned,
 
     // Trend strength (ADX)
     strongTrend:        adxValue > 25,
@@ -194,6 +206,7 @@ export function analyzeTechnicals(quotes) {
         width:  Math.round(bbWidth  * 10000) / 100,
       } : null,
       weeklySlope:  Math.round(weeklySlope * 100) / 100,
+      mtf,                                  // multi-timeframe weekly snapshot
     },
     levels: {
       support:          Math.round(Math.min(support, simpleSupport)     * 100) / 100,
@@ -379,6 +392,69 @@ function calculateOBVTrend(quotes) {
 // ─────────────────────────────────────────────────────────────────────────────
 // STRUCTURE-BASED STOP LOSS (replaces old ATR*1.5 shortcut)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MULTI-TIMEFRAME (MTF) CONFLUENCE — daily ↔ weekly trend alignment
+// Source: Varsity TA module Finale (ch.19) + Dow Theory (ch.17-18).
+// "Primary trend on the weekly chart sets the bias; trade only when the
+//  daily trigger aligns with the weekly trend."
+// ─────────────────────────────────────────────────────────────────────────────
+function computeMTF(quotes, currentPrice) {
+  // Resample daily candles → weekly bars by ISO week. Each weekly bar:
+  // open = Mon open, high = max high, low = min low, close = Fri close.
+  const weeklyCloses = resampleWeekly(quotes);
+  if (weeklyCloses.length < 22) {
+    return { weeklyTrend: 'unknown', aligned: false, weeklyEma20: null, weeklyEma50: null, weeks: weeklyCloses.length };
+  }
+
+  const wEma20 = EMA.calculate({ values: weeklyCloses, period: 20 });
+  const hasW50 = weeklyCloses.length >= 50;
+  const wEma50 = hasW50 ? EMA.calculate({ values: weeklyCloses, period: 50 }) : null;
+
+  const w20 = wEma20[wEma20.length - 1];
+  const w50 = hasW50 ? wEma50[wEma50.length - 1] : null;
+  const wPrice = weeklyCloses[weeklyCloses.length - 1];
+
+  // Slope: last 4 weekly EMA20 bars (~ 1 month of weekly action)
+  const slope = wEma20.length >= 4
+    ? (w20 - wEma20[wEma20.length - 4]) / wEma20[wEma20.length - 4] * 100
+    : 0;
+
+  // Trend classification: with ≥50 weeks of data require full EMA stack;
+  // otherwise fall back to price-vs-EMA20 + slope only.
+  let weeklyTrend = 'sideways';
+  if (hasW50) {
+    if (wPrice > w20 && w20 > w50 && slope > 0.5) weeklyTrend = 'up';
+    else if (wPrice < w20 && w20 < w50 && slope < -0.5) weeklyTrend = 'down';
+  } else {
+    if (wPrice > w20 && slope > 0.5) weeklyTrend = 'up';
+    else if (wPrice < w20 && slope < -0.5) weeklyTrend = 'down';
+  }
+
+  // Aligned = daily price agrees with weekly trend
+  const aligned = (weeklyTrend === 'up' && currentPrice > w20)
+               || (weeklyTrend === 'down' && currentPrice < w20);
+
+  return {
+    weeklyTrend, aligned,
+    weeklyEma20: Math.round(w20 * 100) / 100,
+    weeklyEma50: hasW50 ? Math.round(w50 * 100) / 100 : null,
+    weeklySlopePct: Math.round(slope * 100) / 100,
+    weeks: weeklyCloses.length,
+  };
+}
+
+function resampleWeekly(quotes) {
+  // Group consecutive 5 trading days into one weekly bar.
+  // Using trading-day grouping (not ISO week) — robust to holidays.
+  const weekly = [];
+  for (let i = 0; i < quotes.length; i += 5) {
+    const chunk = quotes.slice(i, i + 5);
+    if (chunk.length === 0) continue;
+    weekly.push(chunk[chunk.length - 1].close);
+  }
+  return weekly;
+}
 
 function calculateStopLossV2(currentPrice, atr, quotes) {
   // 1. Find the most recent structural swing low below price

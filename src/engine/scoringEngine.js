@@ -123,6 +123,10 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   if (signals.bullishDivergence) structureScore += 2;
   else if (signals.obvRising) structureScore += 1;
   if (signals.inDowntrend) structureScore -= 2;
+  // MTF confluence bonus (Varsity TA Finale ch.19): daily setup
+  // confirmed by weekly trend earns +1; daily fighting weekly costs -2.
+  if (signals.mtfBullish && signals.mtfAligned) structureScore += 1;
+  if (signals.mtfBearish && !signals.nearLowerBB) structureScore -= 2;
   structureScore = Math.max(0, Math.min(structureScore, WEIGHTS.structure));
 
   // === TOTAL SCORE ===
@@ -299,6 +303,10 @@ export function rankAndFilterTrades(scoredStocks, totalCapital = null, options =
     // they actually prefer chop.
     const adxBlock = adxGate(trade);
     if (adxBlock) { trade.blockedReason = adxBlock; continue; }
+    // Multi-timeframe (MTF) confluence — refuse trending longs against
+    // a confirmed weekly downtrend (Varsity TA Finale ch.19 + Dow ch.17-18)
+    const mtfBlock = mtfGate(trade);
+    if (mtfBlock) { trade.blockedReason = mtfBlock; continue; }
     const validation = validateTrade(trade, selectedTrades, totalCapital, options);
     if (validation.valid) {
       trade.validationWarnings = validation.warnings;
@@ -363,6 +371,32 @@ function adxGate(trade) {
   }
   if (meanRevSetups.includes(setup) && adx > 30) {
     return `ADX ${adx} > 30: ${setup} needs a range, not a runaway trend`;
+  }
+  return null;
+}
+
+/**
+ * Multi-timeframe (MTF) confluence gate.
+ * Varsity TA Finale (ch.19) + Dow Theory (ch.17-18):
+ * "Primary trend = weekly. Trade only when the daily trigger aligns
+ *  with the weekly trend."
+ *
+ * Refuses trending LONG setups when the weekly trend is confirmed DOWN.
+ * Mean-reversion / squeeze setups are exempt — they intentionally fade.
+ */
+function mtfGate(trade) {
+  const mtf = trade.indicators?.mtf;
+  if (!mtf || mtf.weeklyTrend === 'unknown') return null;
+  const setup = trade.setupType || '';
+
+  const trendingLongs = [
+    'Trend Continuation', 'HH/HL Trend Continuation',
+    'Breakout', 'Breakout + ADX Trend', 'Three White Soldiers',
+    'MACD Crossover',
+  ];
+
+  if (trendingLongs.includes(setup) && mtf.weeklyTrend === 'down') {
+    return `Weekly trend is DOWN (slope ${mtf.weeklySlopePct}%): ${setup} long refused — daily ≠ weekly`;
   }
   return null;
 }
