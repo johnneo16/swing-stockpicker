@@ -11,6 +11,11 @@ const DEFAULT_RISK_PERCENT = 0.015;      // 1.5% default risk per trade
 const MAX_CONCURRENT_TRADES = 5;
 const CASH_RESERVE_PERCENT = 0.15;       // 15% cash reserve (down from 20% to allow more trades)
 const MAX_SECTOR_EXPOSURE = 3;           // Max 3 stocks per sector
+
+// Portfolio risk thresholds (Varsity Risk Management module — ch.3-5, ch.10)
+const MAX_PAIRWISE_CORRELATION = 0.75;   // refuse a new open if 60d return correlation w/ any existing > this
+const MAX_PORTFOLIO_VAR_PCT    = 4.0;    // alert/refuse if 95% 1-day VaR > 4% of capital
+const VAR_LOOKBACK_DAYS        = 60;     // rolling window for VaR + correlation
 const MIN_RISK_REWARD = 1.5;             // Minimum 1:1.5 risk-reward
 const MAX_CAPITAL_PER_TRADE = 0.20;      // Cap single trade at 20% of portfolio
 
@@ -208,4 +213,7 @@ export const CONFIG = {
   MAX_SECTOR_EXPOSURE,
   MIN_RISK_REWARD,
   MAX_CAPITAL_PER_TRADE,
+  MAX_PAIRWISE_CORRELATION,
+  MAX_PORTFOLIO_VAR_PCT,
+  VAR_LOOKBACK_DAYS,
 };

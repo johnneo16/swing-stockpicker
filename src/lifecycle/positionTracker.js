@@ -14,6 +14,7 @@ import { tradesRepo, positionsRepo, db } from '../persistence/db.js';
 import { fetchAngelOneLTP, isAngelOneConfigured } from '../engine/angelOneProvider.js';
 import { CONFIG } from '../engine/riskEngine.js';
 import { reflectOnTrade } from '../intelligence/tradeReflection.js';
+import { correlationGate } from '../intelligence/portfolioRisk.js';
 import yahooFinance from 'yahoo-finance2';
 
 const USE_ANGELONE = isAngelOneConfigured();
@@ -39,12 +40,13 @@ const USE_ANGELONE = isAngelOneConfigured();
  *   - totalCapital: number, default 50000 — used for cash-availability math
  *   - skipGuards: bool, default false — bypass guards (use only for tests/migrations)
  */
-export function openPosition(scoredTrade, mode = 'paper', opts = {}) {
+export async function openPosition(scoredTrade, mode = 'paper', opts = {}) {
   const existing = tradesRepo.getOpenBySymbol(scoredTrade.symbol, mode);
   if (existing) return existing;
 
   const totalCapital = opts.totalCapital || CONFIG.TOTAL_CAPITAL;
   const skipGuards   = opts.skipGuards === true;
+  const skipCorr     = opts.skipCorrelationGate === true;
   const assetClass   = opts.assetClass || scoredTrade.assetClass || 'stock';
 
   // ── Layer-2 defense (skippable for migrations / tests) ──────────────────
@@ -73,6 +75,26 @@ export function openPosition(scoredTrade, mode = 'paper', opts = {}) {
         `need ₹${need}, only ₹${Math.round(deployable)} deployable ` +
         `(cash ₹${Math.round(cashRemaining)} − ${CONFIG.CASH_RESERVE_PERCENT * 100}% reserve ₹${Math.round(minReserve)}).`
       );
+    }
+
+    // Guard 3 (Varsity Risk-Mgmt ch.3-5): pairwise correlation gate.
+    // Refuse if proposed symbol's 60d return correlation with ANY existing
+    // open symbol exceeds CONFIG.MAX_PAIRWISE_CORRELATION. Prevents the
+    // "10 correlated names all drawing down together" failure mode.
+    if (!skipCorr && open.length > 0) {
+      try {
+        const gate = await correlationGate(
+          scoredTrade.symbol,
+          open.map(t => t.symbol),
+        );
+        if (!gate.ok) {
+          throw new Error(`[openPosition guard] ${gate.reason}`);
+        }
+      } catch (e) {
+        // If the gate itself crashes (network), don't block — log and continue
+        if (e.message.startsWith('[openPosition guard]')) throw e;
+        console.warn(`[openPosition] correlation gate skipped: ${e.message}`);
+      }
     }
   }
 

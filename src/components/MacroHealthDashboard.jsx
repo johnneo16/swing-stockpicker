@@ -58,7 +58,7 @@ export default function MacroHealthDashboard() {
   }
   if (!data) return null;
 
-  const { server, database, market, scheduler, killswitch, providers, counts } = data;
+  const { server, database, market, scheduler, killswitch, providers, counts, portfolioRisk } = data;
   const uptimeStr = humanUptime(server.uptimeSec);
 
   return (
@@ -94,6 +94,59 @@ export default function MacroHealthDashboard() {
           />
         </div>
       </div>
+
+      {/* Portfolio risk (correlation + VaR) — Varsity Risk-Mgmt ch.3-5, ch.10 */}
+      {portfolioRisk && !portfolioRisk.error && (
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">
+              <Shield size={16} className="inline-icon" /> Portfolio Risk
+              {portfolioRisk.flags?.length > 0 && (
+                <span style={{
+                  fontSize: '0.65rem', padding: '2px 8px', borderRadius: 4,
+                  background: 'rgba(239,68,68,0.15)', color: 'var(--loss)',
+                  fontWeight: 700, marginLeft: 6,
+                }}>⚠ {portfolioRisk.flags.length} flag{portfolioRisk.flags.length === 1 ? '' : 's'}</span>
+              )}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 12 }}>
+            <Stat
+              label="95% 1-day VaR"
+              value={`${portfolioRisk.var95.varPct}%`}
+              sub={`≈ ₹${portfolioRisk.var95.varRupees.toLocaleString('en-IN')}`}
+              tone={portfolioRisk.var95.varPct > 4 ? 'loss' : portfolioRisk.var95.varPct > 2.5 ? 'muted' : 'profit'}
+            />
+            <Stat
+              label="Highest Pair Corr"
+              value={portfolioRisk.correlation.maxPair
+                ? portfolioRisk.correlation.maxPair.corr.toFixed(2)
+                : '—'}
+              sub={portfolioRisk.correlation.maxPair
+                ? `${portfolioRisk.correlation.maxPair.a} ↔ ${portfolioRisk.correlation.maxPair.b}`
+                : 'no pairs'}
+              tone={portfolioRisk.correlation.maxPair?.corr > 0.75 ? 'loss' :
+                    portfolioRisk.correlation.maxPair?.corr > 0.5  ? 'muted' : 'profit'}
+            />
+            <Stat
+              label="Positions Analysed"
+              value={portfolioRisk.correlation.symbols.length}
+              sub={`${portfolioRisk.var95.samples}d sample`}
+            />
+          </div>
+          {portfolioRisk.flags?.length > 0 && (
+            <div style={{
+              padding: '8px 12px', borderRadius: 6,
+              background: 'rgba(239,68,68,0.08)', borderLeft: '3px solid var(--loss)',
+              fontSize: '0.8rem',
+            }}>
+              {portfolioRisk.flags.map((f, i) => (
+                <div key={i} style={{ color: 'var(--loss)' }}>⚠ {f}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Data counts */}
       <div className="card">

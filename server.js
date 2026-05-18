@@ -24,6 +24,7 @@ import { orchestrator } from './src/scheduler/orchestrator.js';
 import { picksRepo, schedulerRepo, db } from './src/persistence/db.js';
 import { todayStatus, upcomingHolidays, nextTradingDays } from './src/scheduler/jobs.js';
 import { isAngelOneConfigured } from './src/engine/angelOneProvider.js';
+import { portfolioRiskSnapshot } from './src/intelligence/portfolioRisk.js';
 import fs from 'fs';
 
 const SERVER_BOOT_AT = Date.now();
@@ -505,7 +506,7 @@ app.get('/api/health/db', (req, res) => {
  *   server uptime, memory, DB file size, scheduler last-firings, killswitch,
  *   data counts, NSE market status.
  */
-app.get('/api/health/macro', (req, res) => {
+app.get('/api/health/macro', async (req, res) => {
   try {
     const dbInfo = dbHealthCheck();
     let dbSizeBytes = 0;
@@ -515,6 +516,17 @@ app.get('/api/health/macro', (req, res) => {
     const sched = orchestrator.status();
     const killswitchTrippedAt = schedulerRepo.getSetting('killswitch:tripped_at') || null;
     const killswitchReason    = schedulerRepo.getSetting('killswitch:reason') || null;
+
+    // Portfolio risk snapshot (correlation + VaR) — async, hits Yahoo
+    let portfolioRisk = null;
+    try {
+      const openRows = db.prepare(
+        `SELECT symbol, capital FROM trades WHERE status='open' AND mode='paper'`
+      ).all();
+      portfolioRisk = await portfolioRiskSnapshot(openRows, 50000);
+    } catch (e) {
+      portfolioRisk = { error: e.message };
+    }
 
     // Lightweight data counts (single-row aggregate queries — fast)
     const counts = {
@@ -565,6 +577,7 @@ app.get('/api/health/macro', (req, res) => {
       providers: {
         angelOneConfigured: isAngelOneConfigured(),
       },
+      portfolioRisk,
       counts,
     });
   } catch (e) {
@@ -576,11 +589,11 @@ app.get('/api/health/macro', (req, res) => {
  * POST /api/positions/open — open a paper position from a scored trade payload
  *   body: { trade: {...}, mode?: 'paper'|'live' }
  */
-app.post('/api/positions/open', (req, res) => {
+app.post('/api/positions/open', async (req, res) => {
   try {
     const { trade, mode = 'paper' } = req.body || {};
     if (!trade?.symbol) return res.status(400).json({ error: 'trade.symbol is required' });
-    const opened = openPosition(trade, mode);
+    const opened = await openPosition(trade, mode);
     res.json({ ok: true, position: opened });
   } catch (e) {
     res.status(500).json({ error: e.message });

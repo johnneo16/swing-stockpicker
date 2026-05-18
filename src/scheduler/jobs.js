@@ -164,7 +164,7 @@ export async function jobPreMarket(ctx = {}) {
     let tradeId = null;
     if (!blockedReason && autoTrack) {
       try {
-        const opened = openPosition(t, 'paper', { totalCapital: capital, assetClass });
+        const opened = await openPosition(t, 'paper', { totalCapital: capital, assetClass });
         tradeId = opened.id;
         cashAvailable -= t.capitalRequired; // decrement local mirror
       } catch (e) {
