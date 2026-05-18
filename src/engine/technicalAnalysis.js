@@ -96,6 +96,17 @@ export function analyzeTechnicals(quotes) {
   // The 61.8% Golden Ratio is Varsity's "strongest" support level.
   const fib = computeFibonacci(quotes, currentPrice);
 
+  // ── TRENDLINES — the workhorse of price action ───────────────────────────
+  // Fit a rising line through swing lows (= trendline support) and a falling
+  // line through swing highs (= trendline resistance). Validate by 3rd-touch.
+  // This is where the major lifting happens — most professional setups are
+  // simply price interacting with a well-established trendline.
+  const trendlines = computeTrendlines(quotes, currentPrice);
+
+  // ── PRICE ACTION SIGNALS (rejection wicks, bull/bear traps) ──────────────
+  const priceAction = analyzePriceAction(quotes, currentPrice,
+    { simpleSupport, simpleResistance, nearestSupportZone, nearestResistanceZone, trendlines });
+
   // ── DOW PATTERNS (Varsity ch.18) ────────────────────────────────────────
   // Detect classical Dow chart patterns over the last 60 trading days:
   //   - Double Bottom (bullish reversal): two swing lows at ~same price,
@@ -172,6 +183,21 @@ export function analyzeTechnicals(quotes) {
     doubleTop:        dow?.doubleTop    || false,
     bullishFlag:      dow?.bullishFlag  || false,
     rangeBreakout:    dow?.rangeBreakout || false,
+
+    // ── Trendlines (the major lifters)
+    onTrendlineSupport:    trendlines?.uptrend?.touchingNow || false,
+    onTrendlineResistance: trendlines?.downtrend?.touchingNow || false,
+    trendlineSupportValid: (trendlines?.uptrend?.touches || 0) >= 3,
+    trendlineResistValid:  (trendlines?.downtrend?.touches || 0) >= 3,
+    brokeTrendlineSupport: trendlines?.uptrend?.brokenDown || false,
+    brokeTrendlineResist:  trendlines?.downtrend?.brokenUp || false,
+
+    // ── Price action — rejection / trap signals
+    bullishRejection:  priceAction?.bullishRejection || false,
+    bearishRejection:  priceAction?.bearishRejection || false,
+    bullTrap:          priceAction?.bullTrap || false,    // false breakout up → reverse down
+    bearTrap:          priceAction?.bearTrap || false,    // false breakdown → reverse up
+    retestBounce:      priceAction?.retestBounce || false, // broke level, came back, bounced
 
     // Trend strength (ADX)
     strongTrend:        adxValue > 25,
@@ -258,6 +284,8 @@ export function analyzeTechnicals(quotes) {
       weeklySlope:  Math.round(weeklySlope * 100) / 100,
       mtf,                                  // multi-timeframe weekly snapshot
       fib,                                  // Fibonacci retracement levels + nearest
+      trendlines,                           // rising/falling trendlines + touch counts
+      priceAction,                          // rejection signals + trap detection
     },
     srZones,                                  // Varsity ch.11 — full zone list w/ touch counts
     levels: {
@@ -480,6 +508,172 @@ function calculateOBVTrend(quotes) {
 // ─────────────────────────────────────────────────────────────────────────────
 // STRUCTURE-BASED STOP LOSS (replaces old ATR*1.5 shortcut)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRENDLINES — the engine's major lifter.
+//
+// A trendline is the single most-powerful tool in price-action trading:
+// it captures the geometry of supply/demand over time in a way that
+// indicators (lagging by definition) cannot.
+//
+// Construction (Varsity ch.11 + Dow ch.17-18):
+//   - Uptrend support line: connect 2 most recent rising swing LOWS.
+//     Validate by counting additional swing lows that fall within ±0.7%
+//     of the projected line. ≥3 touches = "valid" trendline.
+//   - Downtrend resistance line: mirror with falling swing HIGHS.
+//
+// Signals emitted per line:
+//   - touchingNow: current price within ±1.5% of projected line (pre-bounce setup)
+//   - brokenDown / brokenUp: latest close decisively breached the line
+//   - touches: number of validated touches (≥3 = "respected" trendline)
+//   - slopePctPerBar: rate of climb (positive for uptrend)
+//
+// This is intentionally the LARGEST single source of bullish points in
+// scoring — Varsity / Dow place trendlines + S/R above all indicators.
+// ─────────────────────────────────────────────────────────────────────────────
+function computeTrendlines(quotes, currentPrice) {
+  if (!quotes || quotes.length < 30) return null;
+  const window = quotes.slice(-60);
+
+  // Detect pivots — local highs/lows with 3-bar look on each side
+  const swingHighs = [], swingLows = [];
+  for (let i = 3; i < window.length - 3; i++) {
+    const h = window[i].high, l = window[i].low;
+    if (h > window[i-1].high && h > window[i-2].high && h > window[i-3].high &&
+        h > window[i+1].high && h > window[i+2].high && h > window[i+3].high) {
+      swingHighs.push({ idx: i, price: h });
+    }
+    if (l < window[i-1].low && l < window[i-2].low && l < window[i-3].low &&
+        l < window[i+1].low && l < window[i+2].low && l < window[i+3].low) {
+      swingLows.push({ idx: i, price: l });
+    }
+  }
+
+  return {
+    uptrend:   fitTrendline(swingLows,  window, currentPrice, 'support'),
+    downtrend: fitTrendline(swingHighs, window, currentPrice, 'resistance'),
+  };
+}
+
+function fitTrendline(pivots, window, currentPrice, kind) {
+  if (pivots.length < 2) return null;
+  // Take the 2 most-recent pivots that form a valid slope
+  // For support: slope must be > 0 (rising lows)
+  // For resistance: slope must be < 0 (falling highs)
+  const wantRising = kind === 'support';
+
+  let p1 = null, p2 = null;
+  for (let i = pivots.length - 1; i >= 1; i--) {
+    const candP2 = pivots[i];
+    for (let j = i - 1; j >= 0; j--) {
+      const candP1 = pivots[j];
+      const slope = (candP2.price - candP1.price) / (candP2.idx - candP1.idx);
+      if (wantRising && slope > 0) { p1 = candP1; p2 = candP2; break; }
+      if (!wantRising && slope < 0) { p1 = candP1; p2 = candP2; break; }
+    }
+    if (p1 && p2) break;
+  }
+  if (!p1 || !p2) return null;
+
+  const slope = (p2.price - p1.price) / (p2.idx - p1.idx);
+  // Project to current bar (last index in window)
+  const lastIdx = window.length - 1;
+  const projectedAtNow = p2.price + slope * (lastIdx - p2.idx);
+
+  // Validate — count touches within ±0.7% of the projected line for ALL pivots
+  let touches = 0;
+  for (const p of pivots) {
+    const projected = p2.price + slope * (p.idx - p2.idx);
+    const distPct = projected > 0 ? Math.abs(p.price - projected) / projected * 100 : 100;
+    if (distPct <= 0.7) touches++;
+  }
+
+  // Touching now: current price within 1.5% of line
+  const distNowPct = projectedAtNow > 0 ? Math.abs(currentPrice - projectedAtNow) / projectedAtNow * 100 : 100;
+  const touchingNow = distNowPct <= 1.5;
+
+  // Broken: latest close decisively past the line (>1% beyond)
+  const lastClose = window[lastIdx].close;
+  const brokenDown = kind === 'support'    && (projectedAtNow - lastClose) / projectedAtNow * 100 > 1.0;
+  const brokenUp   = kind === 'resistance' && (lastClose - projectedAtNow) / projectedAtNow * 100 > 1.0;
+
+  // Slope as % per bar (more interpretable)
+  const refPrice = p1.price > 0 ? p1.price : 1;
+  const slopePctPerBar = slope / refPrice * 100;
+
+  return {
+    p1: { idx: p1.idx, price: Math.round(p1.price * 100) / 100 },
+    p2: { idx: p2.idx, price: Math.round(p2.price * 100) / 100 },
+    projectedAtNow: Math.round(projectedAtNow * 100) / 100,
+    touches,
+    valid: touches >= 3,
+    touchingNow,
+    distNowPct: Math.round(distNowPct * 100) / 100,
+    brokenDown, brokenUp,
+    slopePctPerBar: Math.round(slopePctPerBar * 1000) / 1000,
+    kind,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRICE ACTION SIGNALS — rejection wicks, traps, retest bounces.
+//
+// Varsity ch.4 + ch.11 emphasize that "the way price BEHAVES at a level"
+// matters more than the level itself. Reading the latest 1-3 bars at a
+// known S/R zone produces high-confidence entries that no indicator can
+// see (because indicators average across many bars).
+//
+// Signals:
+//   - bullishRejection: at known support, the latest bar shows a long
+//     lower wick (>= 2x body) with close in upper half — sellers were
+//     overwhelmed at the support
+//   - bearishRejection: mirror at resistance
+//   - bullTrap: yesterday closed above resistance (looked like breakout),
+//     today closed back below — false breakout, fade
+//   - bearTrap: mirror — false breakdown, often the cleanest long entry
+//   - retestBounce: the trade was broken N bars ago, price came back and
+//     respected the broken level (now reversed S↔R)
+// ─────────────────────────────────────────────────────────────────────────────
+function analyzePriceAction(quotes, currentPrice, ctx) {
+  if (!quotes || quotes.length < 3) return null;
+  const c0 = quotes[quotes.length - 1];
+  const c1 = quotes[quotes.length - 2];
+  const body0 = Math.abs(c0.close - c0.open);
+  const upper0 = c0.high - Math.max(c0.open, c0.close);
+  const lower0 = Math.min(c0.open, c0.close) - c0.low;
+  const rng0 = c0.high - c0.low;
+
+  // Closing position within the bar's range (0 = low, 1 = high)
+  const closePos = rng0 > 0 ? (c0.close - c0.low) / rng0 : 0.5;
+
+  const sup = ctx.nearestSupportZone?.center ?? ctx.simpleSupport;
+  const res = ctx.nearestResistanceZone?.center ?? ctx.simpleResistance;
+  const atSupport    = sup && Math.abs(currentPrice - sup) / currentPrice * 100 <= 2;
+  const atResistance = res && Math.abs(currentPrice - res) / currentPrice * 100 <= 2;
+
+  // Bullish rejection: long lower wick (≥2× body), close in upper half, at support
+  const bullishRejection = atSupport && body0 > 0 && lower0 >= 2 * body0 && closePos >= 0.6;
+  // Bearish rejection: mirror
+  const bearishRejection = atResistance && body0 > 0 && upper0 >= 2 * body0 && closePos <= 0.4;
+
+  // Bull trap: c1 broke above resistance, c0 closed back below it
+  const bullTrap = res && c1.close > res * 1.005 && c0.close < res * 0.995;
+  // Bear trap: c1 broke below support, c0 closed back above it
+  const bearTrap = sup && c1.close < sup * 0.995 && c0.close > sup * 1.005;
+
+  // Retest bounce: trendline broken, price came back to it, then reversed away
+  const tlSup = ctx.trendlines?.uptrend;
+  const retestBounce = tlSup?.brokenDown && atSupport && bullishRejection;
+
+  return {
+    bullishRejection, bearishRejection,
+    bullTrap, bearTrap, retestBounce,
+    atSupport, atResistance,
+    closePosInBar: Math.round(closePos * 100) / 100,
+    lowerWickToBodyRatio: body0 > 0 ? Math.round(lower0 / body0 * 100) / 100 : 0,
+    upperWickToBodyRatio: body0 > 0 ? Math.round(upper0 / body0 * 100) / 100 : 0,
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VARSITY-SPEC SUPPORT / RESISTANCE ZONES — Varsity ch.11

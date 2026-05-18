@@ -17,6 +17,8 @@ Legend:
 | # | Chapter | Varsity rule | Our implementation | Status |
 |---|---|---|---|---|
 | 1-3 | Background / Intro / Chart Types | Foundational; "buy strength, sell weakness"; closing price is most sacred | We use closing price for all calcs | ✅ |
+| — | **Trendlines** (workhorse, not a dedicated chapter but referenced throughout ch.11, 17-18) | Connect 2+ swing lows (rising support) / 2+ swing highs (falling resistance); validate by 3rd touch within zone | Full trendline detection: fits both rising-support and falling-resistance lines on last 60 bars, validates via ±0.7% touch counting (≥3 = "respected"); detects current-touch within ±1.5% + decisive breaks; exposed as `trendlineSupport/Resistance` + signals (`onTrendlineSupport`, `trendlineSupportValid`, `brokeTrendlineSupport`) | ✅ |
+| — | **Price-action signals** (rejection wicks, bull/bear traps, retests — Varsity ch.4 + ch.11 emphasize these as the highest-conviction reads) | Reject wick ≥2× body at S/R w/ close in upper half; false breakout reversed = trap | Full price-action detector: bullishRejection, bearishRejection, bullTrap (false breakout reversed), bearTrap (false breakdown reversed = textbook long), retestBounce (broken-then-respected level) | ✅ |
 | 4 | Candlesticks intro | Body = open-to-close; wicks = extremes; 3 assumptions: pattern, prior trend, flexibility | Detect 6 patterns but no prior-trend gate | 🟡 |
 | 5 | Single — Marubozu | Open=low, close=high (bull); ±0.2% shadow tolerance; range 1–10%; SL at low | Bullish + bearish Marubozu detected; shadows <5% range; body 1-10% | ✅ |
 | 6 | Single — Spinning Top / Doji | Indecision; trade 50% size, average in next day | Doji detected only; size logic not present | 🟡 |

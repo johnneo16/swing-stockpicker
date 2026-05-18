@@ -7,18 +7,34 @@ import { scoreFundamentals, generateFundamentalSummary } from './fundamentalAnal
  * Combines technical, fundamental, and market signals into a 0-100 confidence score.
  */
 
-// Wall Street-level scoring weights (total = 100)
+// Scoring weights (total = 100) — re-balanced after deep Varsity audit.
+// Per Varsity ch.11 + Dow ch.17-18: PRICE ACTION at S/R zones and along
+// TRENDLINES does the major lifting. Indicators are confirmation only.
+//
+// Old → New comparison:
+//                 v3 Tier-1   v3 Tier-3 (now)
+//   priceAction      11           18    ← +7 (rejection wicks, traps, retest bounces)
+//   structure         5           12    ← +7 (trendlines + Varsity S/R + Dow + Fib)
+//   trend            13           10    ← -3 (still important, but indicator-derived)
+//   momentum         15           10    ← -5 (confirmation only)
+//   volume           10            8    ← -2 (confirmation only)
+//   psychology        9            5    ← -4 (folded into priceAction)
+//   patterns          5            6    ← +1 (Marubozu absorbed too)
+//   marketContext    10            9    ← -1 (small rebalance)
+//   fundamentals     10           10    same
+//   riskReward       12           12    same
+//   TOTAL           100          100
 const WEIGHTS = {
-  trend: 13,
-  momentum: 15,
-  volume: 10,
-  priceAction: 11,
+  trend: 10,        // EMA stack / direction — indicator-derived, confirms direction only
+  momentum: 10,     // RSI/MACD — confirmation only per Varsity Finale
+  volume: 8,        // volume vs 10-day avg
+  priceAction: 18,  // ★ PRIMARY ★ S/R + trendline interaction + rejection / traps
   riskReward: 12,
-  psychology: 9,
-  fundamentals: 10,
-  marketContext: 10,
-  patterns: 5,    // candlestick patterns
-  structure: 5,   // HH/HL + OBV
+  psychology: 5,    // RSI overext / day-change FOMO guard
+  fundamentals: 10, // ROE / P/E / D/E / ROCE
+  marketContext: 9, // Nifty trend + market mood
+  patterns: 6,      // candlestick patterns
+  structure: 12,    // ★ PRIMARY ★ HH/HL + OBV + trendline validity + Dow + Fib + Varsity-S/R
 };
 
 /**
@@ -59,15 +75,27 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   else volumeScore += 4;
   volumeScore = Math.min(volumeScore, WEIGHTS.volume);
 
-  // === PRICE ACTION SCORE (0-13) ===
+  // === PRICE ACTION SCORE (0-18) — THE BIG LIFTER ===
+  // Per Varsity ch.4 + ch.11: HOW price behaves at a level matters more
+  // than the level itself. These signals capture the actual battle —
+  // rejection wicks, traps, retests — that no indicator can see.
   let priceActionScore = 0;
-  if (signals.breakingOut) priceActionScore += 11;
-  else if (signals.consolidating && signals.nearSupport) priceActionScore += 9;
-  else if (signals.nearSupport) priceActionScore += 6;
-  if (signals.bbSqueezing) priceActionScore += 4; // Squeeze = pending big move
-  if (signals.nearLowerBB && signals.rsiOversold) priceActionScore += 3; // Mean reversion
-  if (signals.nearResistance && !signals.breakingOut) priceActionScore -= 3;
-  if (signals.nearUpperBB && signals.rsiOverbought) priceActionScore -= 3;
+  // Tier-A signals (massive — the cleanest setups in price action)
+  if (signals.bearTrap)         priceActionScore += 8;  // false breakdown reversed = high-conviction long
+  if (signals.bullishRejection) priceActionScore += 7;  // rejection wick at support
+  if (signals.retestBounce)     priceActionScore += 7;  // broken-and-retested level = textbook entry
+  if (signals.onTrendlineSupport && signals.trendlineSupportValid) priceActionScore += 6; // bouncing off validated trendline
+  // Tier-B signals (legacy / weaker)
+  if (signals.breakingOut)      priceActionScore += 5;
+  else if (signals.nearVarsitySupport || signals.nearSupport) priceActionScore += 3;
+  if (signals.bbSqueezing)      priceActionScore += 2;  // squeeze pending big move
+  if (signals.nearLowerBB && signals.rsiOversold) priceActionScore += 2;
+  // Penalties — bearish price action
+  if (signals.bearishRejection) priceActionScore -= 4;
+  if (signals.bullTrap)         priceActionScore -= 6;  // false breakout reversed = stay out
+  if (signals.brokeTrendlineSupport) priceActionScore -= 5; // critical trendline break
+  if (signals.nearResistance && !signals.breakingOut) priceActionScore -= 2;
+  if (signals.nearUpperBB && signals.rsiOverbought) priceActionScore -= 2;
   priceActionScore = Math.max(0, Math.min(priceActionScore, WEIGHTS.priceAction));
 
   // === RISK-REWARD SCORE (0-12) ===
@@ -128,26 +156,31 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   }
   patternScore = Math.min(patternScore, WEIGHTS.patterns);
 
-  // === MARKET STRUCTURE SCORE (0-5) — HH/HL + OBV ===
+  // === MARKET STRUCTURE SCORE (0-12) — THE OTHER BIG LIFTER ===
+  // Aggregates: HH/HL + OBV (legacy) + Trendlines + Varsity S/R + Dow + Fib + MTF
   let structureScore = 0;
-  if (signals.higherHighs && signals.higherLows) structureScore += 4;
-  else if (signals.higherLows) structureScore += 3;
-  else if (signals.higherHighs) structureScore += 2;
+  // Trend structure (HH/HL)
+  if (signals.higherHighs && signals.higherLows) structureScore += 3;
+  else if (signals.higherLows) structureScore += 2;
+  else if (signals.higherHighs) structureScore += 1;
+  if (signals.inDowntrend) structureScore -= 2;
+  // OBV — volume-confirmed trend
   if (signals.bullishDivergence) structureScore += 2;
   else if (signals.obvRising) structureScore += 1;
-  if (signals.inDowntrend) structureScore -= 2;
-  // MTF confluence bonus (Varsity TA Finale ch.19): daily setup
-  // confirmed by weekly trend earns +1; daily fighting weekly costs -2.
+  // Trendlines (the workhorse): validated + currently touching = textbook setup
+  if (signals.trendlineSupportValid) structureScore += 2;       // ≥3 touches = respected
+  if (signals.onTrendlineSupport && signals.trendlineSupportValid) structureScore += 2; // bouncing now
+  // MTF confluence (Varsity Finale + Dow ch.17-18)
   if (signals.mtfBullish && signals.mtfAligned) structureScore += 1;
   if (signals.mtfBearish && !signals.nearLowerBB) structureScore -= 2;
-  // Fibonacci confluence bonus (Varsity ch.16): 61.8 = golden ratio (strongest)
+  // Fibonacci confluence (Varsity ch.16): 61.8 golden ratio is strongest
   if (signals.nearFib618) structureScore += 2;
   else if (signals.nearFib50 || signals.nearFib382) structureScore += 1;
-  // Varsity-spec S/R confluence (ch.11): high-touch zone = strong support
+  // Varsity-spec S/R (ch.11): touch count drives weight
   if (signals.atGoldenSR) structureScore += 2;       // 5+ touches = "golden" zone
   else if (signals.nearVarsitySupport) structureScore += 1;
-  // Dow pattern bonus (Varsity ch.18): completed reversal/continuation patterns
-  if (signals.doubleBottom) structureScore += 3;
+  // Dow patterns (ch.18): completed reversal/continuation patterns
+  if (signals.doubleBottom) structureScore += 2;
   if (signals.bullishFlag)  structureScore += 2;
   if (signals.rangeBreakout) structureScore += 2;
   if (signals.doubleTop)    structureScore -= 3;
@@ -172,13 +205,24 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   if (totalScore >= 70) riskLevel = 'Low';
   else if (totalScore < 45) riskLevel = 'High';
 
-  // === SETUP TYPE (analysis basis) — Dow patterns get priority ===
+  // === SETUP TYPE — price action FIRST, then patterns, then indicators ===
+  // Per Varsity ch.11 + Dow: trendline/S/R/rejection setups outweigh anything
+  // an indicator can produce. Classification order reflects this hierarchy.
   let setupType = 'Trend Analysis';
-  if (signals.doubleBottom)             setupType = 'Dow Double Bottom';
-  else if (signals.bullishFlag)         setupType = 'Dow Bullish Flag';
-  else if (signals.rangeBreakout)       setupType = 'Dow Range Breakout';
+  // Tier-A — price action at validated structure (the major lifters)
+  if (signals.bearTrap)                                  setupType = 'Bear Trap Reversal';
+  else if (signals.retestBounce)                         setupType = 'Trendline Retest Bounce';
+  else if (signals.bullishRejection && signals.atGoldenSR) setupType = 'Rejection at Golden S/R';
+  else if (signals.bullishRejection && signals.nearVarsitySupport) setupType = 'Support Rejection Wick';
+  else if (signals.onTrendlineSupport && signals.trendlineSupportValid && signals.bullishRejection) setupType = 'Trendline Bounce';
+  else if (signals.onTrendlineSupport && signals.trendlineSupportValid) setupType = 'At Validated Trendline';
+  // Tier-B — Dow patterns (price action over a window)
+  else if (signals.doubleBottom)                         setupType = 'Dow Double Bottom';
+  else if (signals.bullishFlag)                          setupType = 'Dow Bullish Flag';
+  else if (signals.rangeBreakout)                        setupType = 'Dow Range Breakout';
+  // Tier-C — candlestick patterns
   else if (signals.bullishMarubozu && signals.volumeAboveAvg) setupType = 'Bullish Marubozu';
-  else if (signals.breakingOut && signals.strongTrend) setupType = 'Breakout + ADX Trend';
+  else if (signals.breakingOut && signals.strongTrend)   setupType = 'Breakout + ADX Trend';
   else if (signals.breakingOut) setupType = 'Breakout';
   else if (signals.threeWhiteSoldiers) setupType = 'Three White Soldiers';
   else if (signals.morningStar && signals.nearSupport) setupType = 'Morning Star Reversal';
@@ -232,6 +276,27 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
     varsityResistanceTouches: levels.varsityResistanceTouches,
     fibLevels:                indicators.fib?.levels,
     fibNearest:               indicators.fib?.nearestLevel,
+    // Trendlines — the engine's primary structural reads
+    trendlineSupport:         indicators.trendlines?.uptrend ? {
+      projected: indicators.trendlines.uptrend.projectedAtNow,
+      touches:   indicators.trendlines.uptrend.touches,
+      valid:     indicators.trendlines.uptrend.valid,
+      slopePctPerBar: indicators.trendlines.uptrend.slopePctPerBar,
+    } : null,
+    trendlineResistance: indicators.trendlines?.downtrend ? {
+      projected: indicators.trendlines.downtrend.projectedAtNow,
+      touches:   indicators.trendlines.downtrend.touches,
+      valid:     indicators.trendlines.downtrend.valid,
+      slopePctPerBar: indicators.trendlines.downtrend.slopePctPerBar,
+    } : null,
+    priceActionFlags: {
+      bullishRejection:  signals.bullishRejection,
+      bearishRejection:  signals.bearishRejection,
+      bullTrap:          signals.bullTrap,
+      bearTrap:          signals.bearTrap,
+      retestBounce:      signals.retestBounce,
+      onTrendlineSupport: signals.onTrendlineSupport,
+    },
 
     // Position sizing
     riskAmount: position.riskAmount,
@@ -399,6 +464,7 @@ function adxGate(trade) {
     'Breakout', 'Breakout + ADX Trend',
     'MACD Crossover', 'Three White Soldiers',
     'Dow Bullish Flag', 'Dow Range Breakout', 'Bullish Marubozu',
+    'At Validated Trendline', 'Trendline Bounce',
   ];
   const meanRevSetups = [
     'Mean Reversion', 'Pullback / RSI Reversal',

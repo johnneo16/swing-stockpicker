@@ -82,16 +82,18 @@ This is the entire basis on which it shortlists or refuses a trade.
 
 | # | Factor | Weight | Concrete signals checked |
 | --- | --- | --- | --- |
-| 1 | **Trend Alignment** | 13 | Price > EMA20 > EMA50; EMA200 stack; EMA20 + EMA50 slopes rising |
-| 2 | **Momentum** | 15 | RSI(14) zone 40–65 (healthy bullish); MACD bullish + histogram rising; MACD fresh crossover |
-| 3 | **Volume Profile** | 10 | RVOL > 1.2× 20d-avg (above-avg) or > 2.0× (spike); volume drying flagged |
-| 4 | **Price Action** | 11 | Bollinger squeeze; horizontal breakout above resistance with volume |
-| 5 | **Risk–Reward** | 12 | Target/stop ratio: 3.0×→12 pts, 2.5×→10, 2.0×→7, 1.5×→3, <1.5×→0 |
-| 6 | **Psychology** | 9 | RSI > 75 penalty; dayChange > 5% penalty (FOMO guard); multi-signal confluence bonus |
-| 7 | **Fundamentals** | 10 | Scraped from Screener.in: ROCE, ROE, debt/equity, revenue growth, profit margin, PE |
-| 8 | **Market Context** | 10 | Nifty trend (bullish/bearish/neutral); market mood; regime detector output |
-| 9 | **Candlestick Patterns** | 5 | Three White Soldiers, Morning Star, Bullish Engulfing, Hammer, Dragonfly Doji, Bullish Harami |
-| 10 | **Market Structure + OBV** | 5 | Higher-Highs / Higher-Lows confirmed; OBV trend rising; OBV bullish divergence |
+| 1 | **Price Action** ★ | **18** | Bear/bull traps; bullish/bearish rejection wicks at S/R; retest bounces; trendline interactions; breakouts |
+| 2 | **Market Structure** ★ | **12** | HH/HL + OBV + **validated trendlines (≥3 touches)** + Varsity S/R zones + Dow patterns + Fibonacci confluence |
+| 3 | **Risk–Reward** | 12 | Target/stop ratio: 3.0×→12 pts, 2.5×→10, 2.0×→7, 1.5×→3, <1.5×→0 |
+| 4 | **Trend Alignment** | 10 | Price > EMA20 > EMA50; EMA200 stack; EMA20 + EMA50 slopes rising |
+| 5 | **Momentum** | 10 | RSI(14) zone 40–65 (healthy bullish); MACD bullish + histogram rising; MACD fresh crossover |
+| 6 | **Fundamentals** | 10 | Scraped from Screener.in: P/E (Varsity ≤16/22/30 bands), ROE (≥18 good / ≥25 DD), ROCE, D/E (>1 caution) |
+| 7 | **Market Context** | 9 | Nifty trend (bullish/bearish/neutral); market mood; regime detector output |
+| 8 | **Volume Profile** | 8 | RVOL > 1.2× 10d-avg (Varsity ch.12 baseline) or > 2.0× (spike); volume drying flagged |
+| 9 | **Candlestick Patterns** | 6 | Marubozu (bull/bear), Three White Soldiers, Morning Star, Bullish Engulfing, Hammer, Dragonfly Doji, Bullish Harami |
+| 10 | **Psychology** | 5 | RSI > 75 penalty; dayChange > 5% penalty (FOMO guard); multi-signal confluence bonus |
+
+**★ Price Action + Market Structure = 30 points = 30% of total score.** Per Varsity ch.11 + Dow Theory ch.17-18, these do the major lifting in the engine — *how price behaves at a level* (rejection wicks, traps, retests, trendline interactions) carries more conviction than any indicator can produce. Indicators are downgraded to confirmation only.
 
 Total score must reach **≥ 50** to enter Pass 1 (strict). Below 50 a Pass-2
 fallback fills remaining slots with the best-available, tagged as low
