@@ -19,8 +19,9 @@
  * In dev (NODE_ENV !== 'production'), output is pretty-printed to stdout
  * for readability; the rotated file always uses raw JSON for grep-ability.
  *
- * Cloud portability: when we move to Render/fly.io, override LOG_DIR via
- * env var (defaults to ~/Library/Logs on Mac, /var/log/swingpro elsewhere).
+ * Cloud portability: when we move to Render/fly.io, set LOG_STDOUT_ONLY=1
+ * to skip the file transport entirely — the container FS is ephemeral and
+ * the platform captures stdout as the canonical log stream.
  */
 
 import os from 'os';
@@ -29,37 +30,41 @@ import fs from 'fs';
 import pino from 'pino';
 
 const isProd = process.env.NODE_ENV === 'production';
+const stdoutOnly = process.env.LOG_STDOUT_ONLY === '1';
 
 // Default log dir per platform; LOG_DIR env var overrides for cloud
 const DEFAULT_LOG_DIR = process.platform === 'darwin'
   ? path.join(os.homedir(), 'Library', 'Logs')
   : '/var/log/swingpro';
 const LOG_DIR = process.env.LOG_DIR || DEFAULT_LOG_DIR;
-try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch (_) {}
+if (!stdoutOnly) {
+  try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch (_) {}
+}
 
 const LOG_FILE = path.join(LOG_DIR, 'swingpro-app.log');
 
-// Build the transport: rotating-file + stdout (pretty in dev, raw in prod)
+const stdoutTarget = isProd
+  ? { target: 'pino/file', level: 'info', options: { destination: 1 } }
+  : { target: 'pino-pretty', level: 'debug', options: { colorize: true, translateTime: 'SYS:HH:MM:ss.l', ignore: 'pid,hostname,service' } };
+
+const fileTarget = {
+  target: 'pino-roll',
+  level:  'debug',
+  options: {
+    file:        LOG_FILE,
+    frequency:   'daily',
+    mkdir:       true,
+    dateFormat:  'yyyy-MM-dd',
+    size:        '50m',
+    limit:       { count: 14 },
+  },
+};
+
+// Build the transport. In container/cloud (LOG_STDOUT_ONLY=1) we skip the
+// rotating-file target so logs flow only to stdout — which the platform
+// captures as the canonical log stream.
 const transport = pino.transport({
-  targets: [
-    // Rotating file: midnight daily, 14-day retention, gzip rotated files
-    {
-      target: 'pino-roll',
-      level:  'debug',
-      options: {
-        file:        LOG_FILE,
-        frequency:   'daily',
-        mkdir:       true,
-        dateFormat:  'yyyy-MM-dd',
-        size:        '50m',                // also rotate if a single day exceeds 50 MB
-        limit:       { count: 14 },        // keep last 14 rotated files
-      },
-    },
-    // Stdout: pretty in dev, JSON in prod (launchd captures the JSON cleanly)
-    isProd
-      ? { target: 'pino/file', level: 'info', options: { destination: 1 } }
-      : { target: 'pino-pretty', level: 'debug', options: { colorize: true, translateTime: 'SYS:HH:MM:ss.l', ignore: 'pid,hostname,service' } },
-  ],
+  targets: stdoutOnly ? [stdoutTarget] : [fileTarget, stdoutTarget],
 });
 
 export const logger = pino(

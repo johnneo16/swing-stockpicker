@@ -342,8 +342,37 @@ open http://localhost:3001
 
 To stop and remove all agents: `bash scripts/uninstall-launchd.sh`
 
+### Docker (portable, cloud-ready)
+
+For non-macOS hosts or as a staging build before cloud deploy:
+
+```bash
+# Build the image and start (compose handles env, volumes, healthcheck)
+docker compose up -d --build
+
+# Tail structured logs (stdout-only in container mode)
+docker compose logs -f swingpro
+
+# Health check
+curl -sf http://localhost:3001/api/health/macro | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print('ok:', d['ok'])"
+
+# Stop (DB volume `swingpro-data` is preserved)
+docker compose down
+```
+
+Notes:
+- The image runs as a non-root user, with `TZ=Asia/Kolkata` baked in so the
+  cron scheduler fires at correct IST times regardless of host timezone.
+- Logs go to stdout only (`LOG_STDOUT_ONLY=1`) — the platform captures them.
+  Use `docker compose logs` or your cloud provider's log viewer.
+- The SQLite DB lives on a named volume (`swingpro-data`) mounted at
+  `/app/data`. `docker compose down -v` deletes it — restore from
+  `~/SwingProBackups/` (see RUNBOOK §6).
+- `.env` is mounted at runtime via `env_file`, never baked into the image.
+
 **Full ops reference** (daily checks, killswitch recovery, DB restore, new-machine
-install, troubleshooting): see [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
+install, troubleshooting, cloud-migration prep): see [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 ---
 

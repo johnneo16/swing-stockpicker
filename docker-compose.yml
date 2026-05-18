@@ -1,0 +1,48 @@
+# SwingPro local Docker stack.
+#
+# Usage:
+#   docker compose up -d --build     # build image + start container in background
+#   docker compose logs -f swingpro  # tail structured JSON logs
+#   docker compose ps                # check health
+#   docker compose down              # stop (data volume persists)
+#   docker compose down -v           # stop + DELETE the data volume (destroys DB)
+#
+# The data volume `swingpro-data` persists the SQLite DB across container
+# restarts. Removing it (with `down -v`) deletes the DB — restore from
+# ~/SwingProBackups/ as documented in docs/RUNBOOK.md §6.
+#
+# Secrets: env vars come from `.env` in the project root. The .env file is
+# .gitignored AND .dockerignored — it is mounted at runtime via env_file,
+# never baked into the image.
+
+services:
+  swingpro:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: swingpro:latest
+    container_name: swingpro
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env
+    environment:
+      # Override .env values for container mode. These are not secrets.
+      NODE_ENV: production
+      PORT: 3001
+      TZ: Asia/Kolkata
+      LOG_STDOUT_ONLY: "1"
+      SWINGPRO_DB: /app/data/swingpro.db
+    volumes:
+      - swingpro-data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/health/macro').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 60s
+      timeout: 8s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  swingpro-data:
+    driver: local

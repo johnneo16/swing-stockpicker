@@ -1,0 +1,59 @@
+# Match .gitignore intent — keep secrets and machine-local state OUT of the
+# build context. If it's not in the image you can't accidentally publish it.
+
+# Secrets and local config
+.env
+.env.local
+.env.*.local
+.env.example.local
+
+# Internal handoff notes (operational state, P&L, email)
+HANDOFF.md
+
+# Node + build artifacts (rebuilt inside the container)
+node_modules
+dist
+package-lock.json.bak
+
+# SQLite DB and caches — must come from a mounted volume, never the image
+data/swingpro.db
+data/swingpro.db-wal
+data/swingpro.db-shm
+data/swingpro.db.eod-*
+data/historical
+data/angelone-session.json
+data/angelone-tokens.json
+
+# Logs
+*.log
+
+# Dev / test artifacts
+test_*.mjs
+gfinance.html
+yf_test.mjs
+
+# IDE + agent configs
+.git
+.gitignore
+.vscode
+.idea
+.claude
+.cursor
+.cursorrules
+.mcp.json
+.opencode.json
+.windsurfrules
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.DS_Store
+
+# OS / editor scratch
+*.swp
+*.swo
+*~
+Thumbs.db
+
+# Docs (don't need them in the runtime image, but kept light)
+docs
+README.md
