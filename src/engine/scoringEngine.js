@@ -225,6 +225,13 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
     targetPrice: levels.target,
     riskRewardRatio: levels.riskRewardRatio,
     estimatedDays: levels.estimatedDays,
+    // Varsity-spec S/R surface — for UI display and downstream analysis
+    varsitySupport:           levels.varsitySupport,
+    varsityResistance:        levels.varsityResistance,
+    varsitySupportTouches:    levels.varsitySupportTouches,
+    varsityResistanceTouches: levels.varsityResistanceTouches,
+    fibLevels:                indicators.fib?.levels,
+    fibNearest:               indicators.fib?.nearestLevel,
 
     // Position sizing
     riskAmount: position.riskAmount,
