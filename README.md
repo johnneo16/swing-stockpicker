@@ -15,15 +15,17 @@ what works in your market — and where the engine is drifting.
 
 | Pillar | Modules |
 | --- | --- |
-| **Scan & rank** | 10-factor scoring (trend, momentum, volume, structure, candlesticks, OBV, fundamentals, regime, R:R, psychology) over the NSE universe + a curated ETF universe |
-| **Risk & sizing** | ATR-aware position sizing, sector caps, killswitch, per-class capital pools (stocks ₹50K, ETFs ₹25K) |
-| **Backtest** | Walk-forward simulator with warmup, asset-class isolation, equity curve, drawdown, expectancy, profit factor — saved as runs you can browse |
-| **Paper trading** | Auto-tracked picks open as paper positions; the exit engine runs the full lifecycle (stops, BE moves, partials, trails, time stops, gap handling) |
+| **Scan & rank** | 10-factor scoring (trend, momentum, volume, structure, candlesticks, OBV, fundamentals, regime, R:R, psychology) over the NSE universe + a curated ETF universe. Tier-3 fundamentals (CFO, Operating Margin, 5y Sales CAGR) per Varsity FA ch.6-7. |
+| **Risk & sizing** | ATR-aware position sizing, sector caps, killswitch, per-class capital pools (stocks ₹50K, ETFs ₹25K), 60d pairwise correlation gate, 95% 1-day VaR |
+| **Backtest** | Walk-forward simulator with warmup, asset-class isolation, equity curve, drawdown, expectancy, profit factor — saved as runs you can browse. Realistic NSE cost model (slippage + brokerage + STT + stamp duty) and `--frozen-cache` for reproducible engine-change validation. |
+| **Paper trading** | Auto-tracked picks open as paper positions; the exit engine runs the full lifecycle (stops, BE moves at +1R, partials at +1.5R, trails at +2R, time stops, gap handling) |
 | **Reflection** | Every closed trade gets a deterministic reflection (whatWorked / didn't / lesson / setup rating / would-retake) stored on the trade row |
 | **Predicted vs actual** | Live widget that compares paper-journal stats to the most-recent backtest baseline — catches engine drift early |
-| **Notifications** | Browser-native push for new picks, exits, and scheduler events (polling-based, no service worker) |
-| **Macro health** | Single-pane ops dashboard: uptime, DB size, per-job last firings, killswitch, provider status |
+| **Notifications** | Browser-native push for new picks + Telegram bot for ops-critical events (killswitch trip, uncaught errors). Env-driven, no-ops cleanly when unconfigured. |
+| **Macro health** | Single-pane ops dashboard: uptime, DB size, per-job last firings, killswitch, provider status. DB-backed error journal (`/api/errors`) for durable post-incident review. |
 | **NSE-aware** | Cron jobs check the 2025–26 NSE holiday calendar before firing |
+| **Container-ready** | Two-stage Dockerfile + docker-compose with TZ=Asia/Kolkata baked in, non-root runtime, healthcheck wired. Image verified `(healthy)` locally. |
+| **CI** | GitHub Actions runs tests + Vite build + Docker build on every push to `main` |
 
 ---
 
@@ -74,38 +76,49 @@ All state is local: SQLite (`data/swingpro.db`), no cloud, no paid host.
 
 ## The scoring engine — what it evaluates
 
-The engine combines a **10-factor 0–100 confidence score** with **3 hard
-pre-rank gates** and a **5-point Varsity checklist** shown on every card.
+The engine combines a **10-factor 0–100 confidence score** with **10 hard
+pre-rank gates** and a **7-point Varsity checklist** shown on every card.
 This is the entire basis on which it shortlists or refuses a trade.
 
 ### A. The 10 weighted factors (0–100)
 
+Weights are the v2 baseline. A v3 rebalance that pushed Price Action to
+18 and Structure to 12 empirically *degraded* expectancy in backtests and
+was reverted; the current values are the empirically-validated set.
+
 | # | Factor | Weight | Concrete signals checked |
 | --- | --- | --- | --- |
-| 1 | **Price Action** ★ | **18** | Bear/bull traps; bullish/bearish rejection wicks at S/R; retest bounces; trendline interactions; breakouts |
-| 2 | **Market Structure** ★ | **12** | HH/HL + OBV + **validated trendlines (≥3 touches)** + Varsity S/R zones + Dow patterns + Fibonacci confluence |
+| 1 | **Momentum** | 15 | RSI(14) zone 40–65 (healthy bullish); MACD bullish + histogram rising; MACD fresh crossover |
+| 2 | **Trend Alignment** | 13 | Price > EMA20 > EMA50; EMA200 stack; EMA20 + EMA50 slopes rising. M5.3 adds the **9/21 EMA pair** — fresh ema9-over-ema21 cross gives short-swing entry timing (+1.5 trend points, clamped under cap). |
 | 3 | **Risk–Reward** | 12 | Target/stop ratio: 3.0×→12 pts, 2.5×→10, 2.0×→7, 1.5×→3, <1.5×→0 |
-| 4 | **Trend Alignment** | 10 | Price > EMA20 > EMA50; EMA200 stack; EMA20 + EMA50 slopes rising |
-| 5 | **Momentum** | 10 | RSI(14) zone 40–65 (healthy bullish); MACD bullish + histogram rising; MACD fresh crossover |
-| 6 | **Fundamentals** | 10 | Scraped from Screener.in: P/E (Varsity ≤16/22/30 bands), ROE (≥18 good / ≥25 DD), ROCE, D/E (>1 caution) |
-| 7 | **Market Context** | 9 | Nifty trend (bullish/bearish/neutral); market mood; regime detector output |
-| 8 | **Volume Profile** | 8 | RVOL > 1.2× 10d-avg (Varsity ch.12 baseline) or > 2.0× (spike); volume drying flagged |
-| 9 | **Candlestick Patterns** | 6 | Marubozu (bull/bear), Three White Soldiers, Morning Star, Bullish Engulfing, Hammer, Dragonfly Doji, Bullish Harami |
-| 10 | **Psychology** | 5 | RSI > 75 penalty; dayChange > 5% penalty (FOMO guard); multi-signal confluence bonus |
+| 4 | **Price Action** | 11 | Bear/bull traps; bullish/bearish rejection wicks at S/R; retest bounces; trendline interactions; breakouts |
+| 5 | **Volume Profile** | 10 | RVOL > 1.2× 10d-avg (Varsity ch.12 baseline) or > 2.0× (spike); volume drying flagged |
+| 6 | **Fundamentals** | 10 | Scraped from Screener.in: P/E (Varsity ≤16/22/30 bands), ROE (≥18 good / ≥25 DD), ROCE, D/E (>1 caution). **M5.2 Tier-3:** 5y avg CFO (positive vs cash-burning), Operating Margin (≥25% premium / ≥15% quality / ≥10% average), 5y Sales CAGR (≥20% strong / ≥10% steady / <0 declining). |
+| 7 | **Market Context** | 10 | Nifty trend (bullish/bearish/neutral); market mood; regime detector output |
+| 8 | **Psychology** | 9 | RSI > 75 penalty; dayChange > 5% penalty (FOMO guard); multi-signal confluence bonus |
+| 9 | **Candlestick Patterns** | 5 | Marubozu (bull/bear), Three White Soldiers, Morning Star, Bullish Engulfing, Hammer, Dragonfly Doji, Bullish Harami |
+| 10 | **Market Structure** | 5 | HH/HL + OBV + **validated trendlines (≥3 touches)** + Varsity S/R zones + Dow patterns + Fibonacci confluence |
 
-**★ Price Action + Market Structure = 30 points = 30% of total score.** Per Varsity ch.11 + Dow Theory ch.17-18, these do the major lifting in the engine — *how price behaves at a level* (rejection wicks, traps, retests, trendline interactions) carries more conviction than any indicator can produce. Indicators are downgraded to confirmation only.
+Total score must reach **≥ 65** to enter Pass 1 (strict). Threshold was
+raised from 50 → 65 based on per-bucket expectancy data — the 60-69 bucket
+is roughly break-even after commission, the 70+ bucket carries the edge.
+Below 65, a Pass-2 fallback fills remaining slots with the best-available,
+tagged as low confidence.
 
-Total score must reach **≥ 50** to enter Pass 1 (strict). Below 50 a Pass-2
-fallback fills remaining slots with the best-available, tagged as low
-confidence.
+**M5.4 — Central Pivot Range**: daily PP / BC / TC computed from prior-day
+HLC. Levels are surfaced on every TradeCard for trader display, but do
+*not* contribute to scoring. The naive scoring rubric (above-TC + narrow-
+CPR = bonus) was empirically rejected — it lowered expectancy by 0.45pp
+in backtest due to signal double-counting with the existing trend/structure
+machinery. Smarter integration deferred.
 
 ### B. Hard pre-rank gates (every gate must pass)
 
 | Gate | Rule | Source |
 | --- | --- | --- |
 | **R:R floor** | riskRewardRatio ≥ 1.5 | Varsity TA ch.11 |
-| **Confidence floor** | totalScore ≥ 50 | Backtest-tuned (3yr × 198 stocks sweep) |
-| **ADX trend-strength** | Trending setups (Trend Continuation, Breakout, MACD Crossover, Three White Soldiers) refused when ADX < 20. Mean-reversion setups refused when ADX > 30. | Varsity TA ch.20 |
+| **Confidence floor** | totalScore ≥ 65 | Backtest-tuned (3yr × 198 stocks sweep) |
+| **ADX trend-strength** | Trending setups (Trend Continuation, Breakout, MACD Crossover, Three White Soldiers) refused when ADX < 25. Mean-reversion setups refused when ADX > 30. | Varsity TA ch.20 |
 | **MTF confluence** | Trending longs refused when weekly trend is confirmed DOWN (resampled weekly EMA20+50 stack + slope) | Varsity TA Finale ch.19 + Dow Theory ch.17–18 |
 | **Sector cap** | Max 3 positions per sector | Risk Engine |
 | **Pairwise correlation** | New open refused if 60d return correlation with any existing position > 0.75 | Varsity Risk Mgmt ch.3–5 |
@@ -135,17 +148,11 @@ Source: Varsity Technical Analysis module Finale chapter (ch.19 §19.5).
 Each pick is tagged with one setup type, used downstream for ADX gating,
 MTF gating, and per-setup performance tracking:
 
-- Trend Continuation / HH/HL Trend Continuation
-- Breakout / Breakout + ADX Trend
-- Three White Soldiers
-- Morning Star Reversal / Engulfing at Support / Hammer at Support
-- MACD Crossover
-- OBV Bullish Divergence
-- Pullback / RSI Reversal
-- Bollinger Squeeze / Mean Reversion
-- HH/HL Trend / Consolidation + Support
-- Volume Surge
-- (ETF variants of the above for the ETF universe)
+- **Tier-A (empirical winners)**: Bear Trap Reversal · Support Rejection Wick
+- **Tier-B (price-action confirmed)**: Trendline + Price Action
+- **Tier-C (continuation)**: Bullish Marubozu · Bullish Flag
+- **Tier-D (legacy)**: Trend Continuation / HH/HL Trend Continuation · Breakout / Breakout + ADX Trend · Three White Soldiers · Morning Star Reversal / Engulfing at Support / Hammer at Support · MACD Crossover · OBV Bullish Divergence · Pullback / RSI Reversal · Bollinger Squeeze / Mean Reversion · Consolidation + Support · Volume Surge
+- ETF variants of the above for the ETF universe
 
 ### E. Position sizing & risk math
 
@@ -223,20 +230,31 @@ Five layers, every one of which can refuse a trade:
    crosses the configured threshold; resets only via UI button.
 
 Position sizing is ATR-aware. The exit engine moves stops to break-even
-when a position hits +1R, books partials at +2R, then trails the rest.
-Time stops fire if the trade meanders past its estimated holding window.
+when a position hits +1R, books a 50% partial at +1.5R, then trails the
+remainder by 5% of price (or the existing stop, whichever is higher)
+once the trade clears +2R. Time stops fire at 25 holding days. Panic
+exit fires on an intraday gap-down loss > 7%.
 
 ---
 
 ## Out-of-sample validation
 
-The engine is validated as not curve-fit. Same config:
+The engine is validated as not curve-fit. Earlier non-frozen runs:
 
 - In-sample (2024): expectancy **+1.74%/trade**
 - Out-of-sample (2025): expectancy **+1.75%/trade**
 
 See `docs/OUT_OF_SAMPLE_RESULTS.md` for the methodology and per-bucket
 breakdown.
+
+The current **frozen-cache baseline** (2022-01-01 → 2024-12-31, 198-stock
+extended universe, threshold 65, ₹50K — reproducible run-to-run via
+`--frozen-cache`) sits at **+1.05% gross expectancy / 45.3% win / +19.33%
+total return / 10.83% max DD**. The two numbers aren't directly comparable
+— the older ones were single-shot samples of a tail-fetching loader and
+predate the M5.5 STT/stamp cost additions. Going forward, all engine-
+change validation uses the frozen-cache pattern documented in
+`docs/RUNBOOK.md` §13.
 
 Realistic expectation when paper-traded live: **8–16% annualized** on
 a ₹50K stock pool, with drawdowns reaching 6–10%. Anyone promising
@@ -246,19 +264,25 @@ more from a rule-based system is selling something.
 
 ## The orchestrator
 
-`src/scheduler/orchestrator.js` runs ~10 cron jobs (Asia/Kolkata):
+`src/scheduler/orchestrator.js` registers 11 cron jobs, all in
+`Asia/Kolkata`. Headline jobs:
 
-| Job | Schedule | Purpose |
+| Job | Schedule (IST) | Purpose |
 | --- | --- | --- |
-| pre-market | 08:45 | Refresh universe, regime, earnings calendar |
-| morning scan | 09:30 | First stock + ETF scan, auto-track picks |
-| intraday refresh | every 30m | Mark-to-market open positions |
-| exit cycle | every 15m | Apply exit rules to open positions |
-| EOD reconcile | 16:00 | Close day, write equity-curve point |
-| weekly backtest | Sat 06:00 | Rolling walk-forward refresh |
+| pre-market | 09:00 Mon–Fri | Generate today's picks + auto-track |
+| auto-scan | every 30m, 09–15 Mon–Fri | Re-scan for new opportunities |
+| mark-to-market | every 15m, 09–15 Mon–Fri | Update unrealized P&L on open positions |
+| exit-cycle | every 30m, 09–15 Mon–Fri | Apply exit rules (stop / target / BE / trail / partial / time) |
+| earnings-refresh | 07:30 + 16:30 Mon–Fri | Refresh NSE board-meetings calendar |
+| stale-trade-audit | 16:05 Mon–Fri | Flag positions held 1.5× their estimated window |
+| risk-killswitch | 16:15 Mon–Fri | Trip killswitch if rolling DD > 8% |
+| daily-summary | 16:20 Mon–Fri | Generate end-of-day summary |
+| eod-snapshot | 16:30 Mon–Fri | Close day, write equity-curve point |
+| weekly-backtest | 10:00 Saturday | Rolling 2-yr walk-forward refresh |
 
-Every job checks `isNonTradingDay()` (weekend + 2025/26 NSE holiday list)
-before firing.
+Every job checks `isNonTradingDay()` (weekend + 2025/26 NSE holiday
+calendar) before firing. Failures emit to the DB error journal
+(`error_log`) and, when configured, page Telegram.
 
 ---
 
@@ -280,9 +304,9 @@ before firing.
 ## Setup
 
 ### Requirements
-- Node.js 18+
+- Node.js 20.19.2 (pinned in `scripts/com.swingpro.server.plist`, the Dockerfile base, and the CI workflow — bump deliberately, not opportunistically)
 - Angel One account (optional but recommended; Yahoo Finance is the fallback)
-- macOS (for the launchd background-service scripts)
+- macOS for the launchd background-service scripts, OR Docker for any other host
 
 ### Environment
 
@@ -383,15 +407,28 @@ install, troubleshooting, cloud-migration prep): see [`docs/RUNBOOK.md`](docs/RU
 ## Repo layout
 
 ```
-server.js                        Express + API routes
+server.js                        Express + API routes; top-level uncaught handlers
 src/
+  logger.js                      pino + console-shim + daily rotation (M1.3)
+                                 LOG_STDOUT_ONLY=1 disables file transport (Docker/cloud)
+  alerts/                        Telegram bot + DB error journal (M3)
+    telegram.js                  env-driven client, 15-min dedupe throttling
+    errorJournal.js              recordError() persists to error_log table
   engine/                        scoring, risk, data fetching, providers
-  intelligence/                  regime detector, earnings, reflection
+                                 (scoringEngine, technicalAnalysis, fundamentalAnalysis,
+                                  riskEngine, dataFetcher, angelOneProvider, universes)
+  intelligence/                  regime detector, earnings, portfolio risk, reflection
   lifecycle/                     positionTracker, exitEngine
   scheduler/                     orchestrator, jobs, nseHolidays
+  backtest/                      walk-forward engine, simulator, metrics, historicalLoader
   persistence/                   SQLite schema + repos
+    migrations/                  versioned migrations 001..004
   components/                    React UI (tabs + cards + widgets)
+tests/
+  setup.js                       Vitest setup: SWINGPRO_DB=:memory:, log shim off
+  golden/                        golden-fixture snapshot tests
 scripts/
+  runBacktest.js                 CLI backtester (--frozen-cache + cost knobs)
   install-launchd.sh             register all three macOS background agents
   uninstall-launchd.sh           stop + remove all agents
   backup-db.sh                   SQLite online backup (called by launchd agent)
@@ -400,11 +437,17 @@ scripts/
   com.swingpro.backup.plist      launchd plist — daily backup at 17:30 IST
   com.swingpro.watchdog.plist    launchd plist — 5-min health probe
 docs/
-  RUNBOOK.md                     ops runbook: daily checks, killswitch, restore
+  RUNBOOK.md                     ops runbook: daily checks, killswitch, restore,
+                                 Telegram setup, backtest validation workflow
   VARSITY_COMPLIANCE.md          scoring engine vs Zerodha Varsity audit
   OUT_OF_SAMPLE_RESULTS.md       2025 out-of-sample validation findings
+.github/workflows/ci.yml         tests + Vite build + Docker build on every push
+Dockerfile                       two-stage build, non-root, TZ=Asia/Kolkata
+docker-compose.yml               local stack with persistent named volume
+.dockerignore                    excludes .env, HANDOFF.md, data/, .git
 data/
   swingpro.db                    local SQLite (gitignored)
+  historical/                    backtest price cache (gitignored)
 ```
 
 ---
