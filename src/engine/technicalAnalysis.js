@@ -33,13 +33,24 @@ export function analyzeTechnicals(quotes) {
   const macd     = macdValues.length > 0 ? macdValues[macdValues.length - 1] : { MACD: 0, signal: 0, histogram: 0 };
   const prevMacd = macdValues.length > 1 ? macdValues[macdValues.length - 2] : macd;
 
+  // M5.3 — Add the 9/21 EMA pair alongside the existing 20/50/200 stack.
+  // Varsity (and most swing-trading literature) treats 9/21 as the "fast"
+  // pair for intraday → short-swing entries, complementing the 20/50/200
+  // structural trend. Fresh 9-over-21 cross flags entries; price above
+  // both is a healthy short-term bullish bias.
+  const ema9   = EMA.calculate({ values: closes, period: 9  });
+  const ema21  = EMA.calculate({ values: closes, period: 21 });
   const ema20  = EMA.calculate({ values: closes, period: 20 });
   const ema50  = EMA.calculate({ values: closes, period: 50 });
   const ema200 = closes.length >= 200 ? EMA.calculate({ values: closes, period: 200 }) : [];
 
+  const currentEma9   = ema9.length   > 0 ? ema9[ema9.length - 1]     : currentPrice;
+  const currentEma21  = ema21.length  > 0 ? ema21[ema21.length - 1]   : currentPrice;
   const currentEma20  = ema20.length  > 0 ? ema20[ema20.length - 1]   : currentPrice;
   const currentEma50  = ema50.length  > 0 ? ema50[ema50.length - 1]   : currentPrice;
   const currentEma200 = ema200.length > 0 ? ema200[ema200.length - 1] : currentPrice;
+  const prevEma9      = ema9.length   > 1 ? ema9[ema9.length - 2]     : currentEma9;
+  const prevEma21     = ema21.length  > 1 ? ema21[ema21.length - 2]   : currentEma21;
   const prevEma20     = ema20.length  > 1 ? ema20[ema20.length - 2]   : currentEma20;
   const prevEma50     = ema50.length  > 1 ? ema50[ema50.length - 2]   : currentEma50;
 
@@ -167,6 +178,17 @@ export function analyzeTechnicals(quotes) {
     ema50Rising:      currentEma50 > prevEma50,
     weeklyUptrend:    weeklySlope > 0.5,
 
+    // M5.3 — Fast EMA pair (9/21) for short-swing entry timing.
+    //   ema9Above21    : current short-term bullish bias
+    //   ema9CrossUp    : fresh bullish cross today (9 was ≤21 yesterday, >21 today)
+    //   ema9CrossDown  : fresh bearish cross today (warning flag)
+    //   fastTrendStack : price > ema9 > ema21 — the cleanest "in-trend" condition
+    //                    for short-swing setups, matches Varsity 9/21 prescription
+    ema9Above21:      currentEma9 > currentEma21,
+    ema9CrossUp:      prevEma9 <= prevEma21 && currentEma9 > currentEma21,
+    ema9CrossDown:    prevEma9 >= prevEma21 && currentEma9 < currentEma21,
+    fastTrendStack:   currentPrice > currentEma9 && currentEma9 > currentEma21,
+
     // ── Multi-timeframe confluence (Varsity TA Finale ch.19 + Dow ch.17-18)
     mtfBullish:       mtf.weeklyTrend === 'up',
     mtfBearish:       mtf.weeklyTrend === 'down',
@@ -268,6 +290,8 @@ export function analyzeTechnicals(quotes) {
         signal:    Math.round((macd.signal   || 0) * 100) / 100,
         histogram: Math.round((macd.histogram|| 0) * 100) / 100,
       },
+      ema9:         Math.round(currentEma9   * 100) / 100,   // M5.3 fast pair
+      ema21:        Math.round(currentEma21  * 100) / 100,   // M5.3 fast pair
       ema20:        Math.round(currentEma20  * 100) / 100,
       ema50:        Math.round(currentEma50  * 100) / 100,
       ema200:       Math.round(currentEma200 * 100) / 100,

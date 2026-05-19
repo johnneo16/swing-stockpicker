@@ -39,7 +39,11 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
 
   const { signals, indicators, levels } = analysis;
 
-  // === TREND SCORE (0-15) ===
+  // === TREND SCORE (0-13) ===
+  // M5.3: fast EMA stack (price > ema9 > ema21) gets a small bonus to
+  // reward short-term timing. A fresh ema9-over-ema21 cross is a strong
+  // entry signal in Varsity's 9/21 prescription. Both are clamped under
+  // the trend ceiling so they can't displace the primary 20/50/200 stack.
   let trendScore = 0;
   if (signals.aboveEma200) trendScore += 3;
   if (signals.aboveEma50) trendScore += 3;
@@ -48,7 +52,10 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   if (signals.trendAligned) trendScore += 2;
   if (signals.ema20Rising) trendScore += 1.5;
   if (signals.weeklyUptrend) trendScore += 1.5;
-  trendScore = Math.min(trendScore, WEIGHTS.trend);
+  if (signals.fastTrendStack) trendScore += 1;      // M5.3: short-term in-trend
+  if (signals.ema9CrossUp)    trendScore += 1.5;    // M5.3: fresh fast-cross entry
+  if (signals.ema9CrossDown)  trendScore -= 1;      // M5.3: fresh fast-cross warning
+  trendScore = Math.max(0, Math.min(trendScore, WEIGHTS.trend));
 
   // === MOMENTUM SCORE (0-18) ===
   let momentumScore = 0;
