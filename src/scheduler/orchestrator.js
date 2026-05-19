@@ -17,6 +17,7 @@
 
 import cron from 'node-cron';
 import { schedulerRepo } from '../persistence/db.js';
+import { recordError } from '../alerts/errorJournal.js';
 import {
   jobPreMarket, jobPreMarketETF, jobMarkToMarket, jobExitCycle,
   jobEodSnapshot, jobEarningsRefresh, jobWeeklyBacktest,
@@ -165,6 +166,13 @@ class Orchestrator {
       } catch (err) {
         schedulerRepo.finish(logId, 'error', err.message, { stack: err.stack });
         console.error(`⏰ [${job.id}] ✗ ${err.message}`);
+        // Persist to error_log + Telegram-alert (critical scheduler failures
+        // are alerted; routine job errors are journaled silently).
+        recordError(err, {
+          severity: 'error',
+          source:   `job:${job.id}`,
+          context:  { cron: job.cron },
+        }).catch(() => {});
       }
     };
 
@@ -189,6 +197,11 @@ class Orchestrator {
       return result;
     } catch (err) {
       schedulerRepo.finish(logId, 'error', err.message, { stack: err.stack });
+      recordError(err, {
+        severity: 'error',
+        source:   `job:${job.id}`,
+        context:  { trigger: 'manual' },
+      }).catch(() => {});
       throw err;
     }
   }

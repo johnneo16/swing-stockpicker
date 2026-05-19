@@ -22,6 +22,7 @@ DB backup/restore, and step-by-step recovery scenarios.
 9. [Morning checklist](#9-morning-checklist)
 10. [Troubleshooting guide](#10-troubleshooting-guide)
 11. [Cloud-migration prep notes](#11-cloud-migration-prep-notes)
+12. [Telegram alerts + error journal](#12-telegram-alerts--error-journal)
 
 ---
 
@@ -624,6 +625,96 @@ to fly.io free tier with persistent volume.
 
 ---
 
-*Last updated: 2026-05-18. See `docs/VARSITY_COMPLIANCE.md` for the scoring
+---
+
+## 12. Telegram alerts + error journal
+
+The engine ships with an optional Telegram alert channel and a durable
+SQLite error journal. Both are env-driven: without `TELEGRAM_BOT_TOKEN`
++ `TELEGRAM_CHAT_ID` the alert client cleanly no-ops while the journal
+still records every error to the `error_log` table.
+
+### One-time Telegram setup
+
+1. **Create a bot** — open Telegram, message `@BotFather`, send `/newbot`,
+   follow prompts. Copy the API token it returns (looks like
+   `123456789:ABCdefGHI-jKLMnoPQR_STUvwxYZ`).
+2. **Find your chat ID** — start a conversation with your new bot (send it
+   any message), then visit
+   `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser. Find
+   `"chat":{"id":NNN}` in the JSON — `NNN` is your chat ID.
+3. **Add to `.env`**:
+   ```
+   TELEGRAM_BOT_TOKEN=123456789:ABCdefGHI-jKLMnoPQR_STUvwxYZ
+   TELEGRAM_CHAT_ID=123456789
+   ```
+4. **Restart the server**:
+   ```bash
+   launchctl kickstart -k gui/$(id -u)/com.swingpro.server
+   ```
+
+### What gets alerted
+
+| Event | Severity | Throttle |
+|---|---|---|
+| Killswitch trip | critical | 15 min dedupe on `killswitch:trip` |
+| Uncaught exception in server | critical | 15 min per `source:message[:60]` |
+| Unhandled promise rejection | critical | 15 min per `source:message[:60]` |
+| Scheduled job error | error (journal only — no Telegram by default) | — |
+
+Routine job errors are journaled but not alerted to avoid noisy pages.
+If you want Telegram on a specific job error, pass `alert: true` to
+`recordError()` at the call site.
+
+### Verifying alerts work
+
+```bash
+# Trigger a synthetic critical alert end-to-end
+curl -s -X POST http://localhost:3001/api/test/alert 2>/dev/null  # if you've added one
+# Otherwise: tail the journal and force a known failure
+curl -sX POST http://localhost:3001/api/scheduler/jobs/nonexistent/run
+# Then check:
+curl -s "http://localhost:3001/api/errors?limit=5" | python3 -m json.tool
+```
+
+### Reading the error journal
+
+```bash
+# Recent 50 errors (any severity)
+curl -s http://localhost:3001/api/errors | python3 -m json.tool
+
+# Only critical
+curl -s "http://localhost:3001/api/errors?severity=critical&limit=20" | python3 -m json.tool
+
+# Direct DB query
+sqlite3 data/swingpro.db "
+  SELECT occurred_at, severity, source, substr(message, 1, 80), alerted
+  FROM error_log
+  WHERE occurred_at >= datetime('now', '-7 days')
+  ORDER BY occurred_at DESC
+  LIMIT 20
+"
+```
+
+### Pruning the journal
+
+The journal is append-only. After a year of moderate usage it'll be
+~MB-scale (not GB) so pruning is optional. To trim:
+
+```bash
+# Drop entries older than 90 days
+sqlite3 data/swingpro.db \
+  "DELETE FROM error_log WHERE occurred_at < datetime('now', '-90 days')"
+```
+
+### Disabling Telegram temporarily
+
+Comment out or remove `TELEGRAM_BOT_TOKEN` from `.env` and restart. The
+journal continues working; alerts cleanly no-op with
+`{ sent: false, reason: 'disabled' }`.
+
+---
+
+*Last updated: 2026-05-19. See `docs/VARSITY_COMPLIANCE.md` for the scoring
 engine theory baseline and `docs/OUT_OF_SAMPLE_RESULTS.md` for backtest
 validation methodology.*

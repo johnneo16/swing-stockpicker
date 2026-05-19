@@ -26,9 +26,28 @@ import { picksRepo, schedulerRepo, db } from './src/persistence/db.js';
 import { todayStatus, upcomingHolidays, nextTradingDays } from './src/scheduler/jobs.js';
 import { isAngelOneConfigured } from './src/engine/angelOneProvider.js';
 import { portfolioRiskSnapshot } from './src/intelligence/portfolioRisk.js';
+import { recordError, recentErrors } from './src/alerts/errorJournal.js';
+import { isTelegramConfigured } from './src/alerts/telegram.js';
 import fs from 'fs';
 
 const SERVER_BOOT_AT = Date.now();
+
+// Top-level safety net for errors that escape every other catch.
+// Both handlers persist the error to error_log (DB-backed journal),
+// emit a CRITICAL Telegram alert if configured, and let the process
+// continue running. uncaughtException defaults to terminating the
+// process — we intentionally swallow it, because launchd KeepAlive
+// will respawn us anyway and an in-memory restart preserves the
+// orchestrator's cron state for the rest of the trading day.
+process.on('uncaughtException', (err) => {
+  recordError(err, { severity: 'critical', source: 'uncaught', alert: true })
+    .catch(() => { /* journal itself failed; no more recovery available */ });
+});
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  recordError(err, { severity: 'critical', source: 'unhandledRejection', alert: true })
+    .catch(() => {});
+});
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -452,6 +471,22 @@ app.post('/api/scheduler/jobs/:id/toggle', (req, res) => {
 app.get('/api/scheduler/log', (req, res) => {
   const limit = Math.min(200, parseInt(req.query.limit || '50', 10));
   res.json({ runs: schedulerRepo.recent(limit) });
+});
+
+/**
+ * GET /api/errors — recent rows from the error journal.
+ *   ?limit=N (default 50, max 500)
+ *   ?severity=critical|error|warning
+ * Backs the Health-tab error widget and ad-hoc debugging.
+ */
+app.get('/api/errors', (req, res) => {
+  const limit    = Math.min(parseInt(req.query.limit, 10) || 50, 500);
+  const severity = req.query.severity || null;
+  res.json({
+    ok: true,
+    telegramConfigured: isTelegramConfigured(),
+    errors: recentErrors(limit, severity),
+  });
 });
 
 /**

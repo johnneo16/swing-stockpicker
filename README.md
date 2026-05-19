@@ -304,6 +304,10 @@ SWINGPRO_DB=./data/swingpro.db # default
 LOG_LEVEL=info                 # debug | info | warn | error — defaults to info in prod
 LOG_DIR=                       # defaults to ~/Library/Logs on macOS
 DISABLE_LOG_SHIM=              # set to 1 to bypass the pino console-shim (debug only)
+
+# Telegram alerts (optional — engine no-ops cleanly without these)
+TELEGRAM_BOT_TOKEN=            # from @BotFather — see RUNBOOK.md §12
+TELEGRAM_CHAT_ID=              # your numeric chat ID
 ```
 
 `.env` is gitignored — never commit it. The Angel One JWT cache at

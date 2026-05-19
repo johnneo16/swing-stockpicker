@@ -23,6 +23,7 @@ import { CONFIG, getCapitalForClass } from '../engine/riskEngine.js';
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 import { isNonTradingDay, todayStatus, upcomingHolidays, nextTradingDays } from './nseHolidays.js';
+import { sendTelegram } from '../alerts/telegram.js';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -375,6 +376,16 @@ export async function jobRiskKillswitch({
     schedulerRepo.setSetting('job:pre-market:enabled', '0');
     schedulerRepo.setSetting('killswitch:tripped_at', new Date().toISOString());
     schedulerRepo.setSetting('killswitch:reason', triggers.join('; '));
+    // CRITICAL alert — killswitch trips disable pre-market until manually
+    // reset, so the user needs to know now (not on next morning open).
+    // dedupeKey collapses duplicate trips inside the 15-min window in
+    // case of a flapping signal.
+    sendTelegram({
+      level: 'critical',
+      title: 'Killswitch tripped',
+      body:  `Pre-market job disabled.\n\nTriggers:\n• ${triggers.join('\n• ')}\n\nReset via /api/scheduler/killswitch/reset or the Health-tab button.`,
+      dedupeKey: 'killswitch:trip',
+    }).catch(() => { /* logged; nothing more to do */ });
     return {
       ok: true,
       message: `🛑 KILLSWITCH TRIPPED: ${triggers.join(', ')}. Pre-market disabled.`,

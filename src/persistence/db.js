@@ -240,6 +240,24 @@ CREATE TABLE IF NOT EXISTS backtest_trades (
 
 CREATE INDEX IF NOT EXISTS idx_bt_trades_run_id ON backtest_trades(run_id);
 CREATE INDEX IF NOT EXISTS idx_bt_trades_symbol ON backtest_trades(symbol);
+
+-- error_log: durable journal for uncaught errors + job failures (M3).
+-- Mirrored here in the baseline so fresh DBs get the table even though
+-- the migrator's legacy-prime heuristic skips its 004 migration.
+-- Existing DBs (where trades + schema_migrations are already populated)
+-- still have 004 applied via the migration runner.
+CREATE TABLE IF NOT EXISTS error_log (
+  id            INTEGER PRIMARY KEY,
+  occurred_at   TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  severity      TEXT    NOT NULL,
+  source        TEXT    NOT NULL,
+  message       TEXT    NOT NULL,
+  stack         TEXT,
+  context_json  TEXT,
+  alerted       INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_error_log_occurred_at ON error_log(occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_error_log_severity    ON error_log(severity);
 `);
 
 // ─────────────────────────────────────────────────────────────────────────────
