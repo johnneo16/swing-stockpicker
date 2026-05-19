@@ -44,6 +44,14 @@ async function main() {
     rebalanceEvery: parseInt(args.rebalance || '1', 10),
     volAdjustedSizing: args['flat-sizing'] !== 'true' && args['flat-sizing'] !== true,
     baseRiskPercent: parseFloat(args['risk-pct'] || '0.015'),
+    // M5.5: NSE-realistic cost model — defaults match small-account retail
+    // trader (Zerodha-equivalent) per src/backtest/simulator.js DEFAULT_OPTS.
+    // Override to model different cost regimes (e.g. --stt-bps 0 to see
+    // pre-STT impact, --slippage-bps 0 --brokerage-bps 0 for ideal-fill).
+    slippageBps:  parseFloat(args['slippage-bps']  || '20'),
+    brokerageBps: parseFloat(args['brokerage-bps'] || '10'),
+    sttBps:       parseFloat(args['stt-bps']       || '10'),
+    stampBps:     parseFloat(args['stamp-bps']     || '1.5'),
   };
 
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

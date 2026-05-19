@@ -34,6 +34,8 @@ const DEFAULT_CONFIG = {
   warmupDays:       80,        // need ~80 bars before scoring engine works
   slippageBps:      20,
   brokerageBps:     10,
+  sttBps:           10,    // M5.5: 0.10% NSE delivery STT on sell side
+  stampBps:        1.5,    // M5.5: 0.015% stamp duty on buy side
   // Force-include even low-confidence picks? (mirror Pass 2 of live engine)
   includeLowConf:   false,
   // Volatility-adjusted position sizing — multiplies the 1.5% baseline
@@ -204,6 +206,8 @@ export async function runBacktest(universe, config = {}, progressFn = null) {
         maxHoldingDays: C.maxHoldingDays,
         slippageBps:    C.slippageBps,
         brokerageBps:   C.brokerageBps,
+        sttBps:         C.sttBps,
+        stampBps:       C.stampBps,
       });
       trade._simExitDateMs = new Date(trade._simResult.exitDate).getTime();
 
