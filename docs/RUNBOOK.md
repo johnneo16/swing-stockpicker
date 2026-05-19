@@ -23,6 +23,7 @@ DB backup/restore, and step-by-step recovery scenarios.
 10. [Troubleshooting guide](#10-troubleshooting-guide)
 11. [Cloud-migration prep notes](#11-cloud-migration-prep-notes)
 12. [Telegram alerts + error journal](#12-telegram-alerts--error-journal)
+13. [Backtest validation workflow](#13-backtest-validation-workflow)
 
 ---
 
@@ -712,6 +713,100 @@ sqlite3 data/swingpro.db \
 Comment out or remove `TELEGRAM_BOT_TOKEN` from `.env` and restart. The
 journal continues working; alerts cleanly no-op with
 `{ sent: false, reason: 'disabled' }`.
+
+---
+
+## 13. Backtest validation workflow
+
+Every engine change (scoring weight, gate threshold, new indicator) must
+be validated against a **reproducible** backtest. Without this, run-to-run
+variance from Yahoo Finance rate-limiting (~1pp gross-expectancy swing
+between identical-config runs) masks real signal.
+
+### The reproducibility flag
+
+```bash
+node scripts/runBacktest.js \
+  --universe extended \
+  --start 2022-01-01 --end 2024-12-31 \
+  --capital 50000 --threshold 65 \
+  --frozen-cache              # M5.6 — skip Yahoo tail-fetch, use cache as-is
+```
+
+`--frozen-cache` makes the backtest **byte-identical between runs** on the
+same cache. Tested empirically — two consecutive runs produce matching
+trade counts, win rates, expectancies. The cache may be older than today's
+date, but stability is what enables apples-to-apples comparison.
+
+### Before-and-after pattern
+
+```bash
+# 1. Lock the baseline (no code change yet)
+node scripts/runBacktest.js --universe extended --start 2022-01-01 \
+  --end 2024-12-31 --capital 50000 --threshold 65 --frozen-cache \
+  > /tmp/baseline.log
+
+# 2. Make your engine change (commit it locally)
+
+# 3. Re-run with the same flags
+node scripts/runBacktest.js --universe extended --start 2022-01-01 \
+  --end 2024-12-31 --capital 50000 --threshold 65 --frozen-cache \
+  > /tmp/candidate.log
+
+# 4. Compare the headline + by-setup blocks
+diff <(grep -E "Total trades:|Win rate:|Expectancy|Max drawdown:" /tmp/baseline.log) \
+     <(grep -E "Total trades:|Win rate:|Expectancy|Max drawdown:" /tmp/candidate.log)
+```
+
+### Acceptance criteria
+
+- **Expectancy must not regress** from the baseline (within ~0.05pp noise floor)
+- **Max DD must not increase by more than 2pp**
+- **Trade count change is informational** — large drops can indicate
+  over-filtering; large jumps can indicate over-loose gating
+
+### Refreshing the cache deliberately
+
+When you want to incorporate new market data into the cache:
+
+```bash
+# Run WITHOUT --frozen-cache to let the loader fetch tail updates
+node scripts/runBacktest.js --universe extended --start 2022-01-01 \
+  --end 2024-12-31 --capital 50000 --threshold 65
+```
+
+Once that completes, the cache files in `data/historical/*.json` are
+updated. Now use `--frozen-cache` for subsequent validation runs against
+the new baseline.
+
+### Cost-model knobs (M5.5)
+
+All four NSE cost parameters are CLI-overridable for sensitivity analysis:
+
+```bash
+node scripts/runBacktest.js \
+  --slippage-bps 20      # per-side slippage, default 20 (0.20%)
+  --brokerage-bps 10     # per-side brokerage, default 10
+  --stt-bps 10           # NSE Securities Transaction Tax (SELL side), default 10
+  --stamp-bps 1.5        # stamp duty (BUY side), default 1.5
+```
+
+Set everything to 0 for an idealized fill simulation (no costs). The
+backtest output includes `pnlPctNet` per trade and a per-trade
+`costBreakdown { brokerage, stt, stamp, total }` ledger for auditing.
+
+### What backtests can and cannot validate
+
+| Subsystem | Backtest-validatable? |
+|---|---|
+| TA scoring weights | ✅ yes — engine runs full TA on cached candles |
+| Setup-type routing | ✅ yes |
+| ADX gate / MTF gate / R:R floor | ✅ yes |
+| Cost model | ✅ yes (changes the net P&L numbers directly) |
+| Position sizing / exit rules | ✅ yes |
+| **Fundamentals scoring (PE, ROE, CFO, OPM, CAGR)** | ❌ **no** — backtest passes `fundamentals: null` (no point-in-time Screener data). Validate live via paper-trade observation |
+| Regime detector | 🟡 partial — backtest doesn't feed a marketContext |
+| Killswitch / Telegram alerts | ❌ no — runtime-only |
 
 ---
 
