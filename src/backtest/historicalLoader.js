@@ -180,12 +180,20 @@ async function fetchRange(symbol, startISO, endISO) {
  * @param {string} symbol — bare NSE symbol (e.g. "RELIANCE")
  * @param {string|Date} startDate
  * @param {string|Date} endDate
+ * @param {object} [opts]
+ *   - frozen: skip the tail-fetch entirely and use cached data as-is. The
+ *     cache may be older than today, but it's STABLE between runs. Required
+ *     for reproducible backtests (M5.6) — without it, Yahoo's rate-limit
+ *     behavior produces different per-symbol stale-cache fallbacks on
+ *     each run, swinging gross expectancy by ~1pp run-to-run with no code
+ *     changes.
  * @returns {Promise<Array<{date,open,high,low,close,volume}>>}
  */
-export async function loadHistorical(symbol, startDate, endDate) {
+export async function loadHistorical(symbol, startDate, endDate, opts = {}) {
   const startISO = isoDate(startDate);
   const endISO   = isoDate(endDate);
   const today    = todayISO();
+  const frozen   = !!opts.frozen;
 
   let cache = readCache(symbol);
 
@@ -200,6 +208,21 @@ export async function loadHistorical(symbol, startDate, endDate) {
       const d = isoDate(c.date);
       return d >= startISO && d <= endISO;
     });
+  }
+
+  // Frozen mode: never attempt a network fetch. If cache exists and at
+  // least covers the start date, return whatever's in it (sliced to the
+  // requested window). If no cache, return empty — caller treats the
+  // symbol as untradeable. Reproducibility wins; coverage degrades
+  // gracefully.
+  if (frozen) {
+    if (cache?.candles) {
+      return cache.candles.filter(c => {
+        const d = isoDate(c.date);
+        return d >= startISO && d <= endISO;
+      });
+    }
+    return [];
   }
 
   // Need to fetch — either new cache or extend
@@ -258,7 +281,22 @@ export async function loadHistorical(symbol, startDate, endDate) {
 export async function loadHistoricalBulk(symbols, startDate, endDate, options = {}) {
   const concurrency = options.concurrency || 3;
   const delayMs     = options.delayMs     || 1500;
+  const frozen      = !!options.frozen;
   const out = new Map();
+
+  // In frozen mode there's no network work to space out — load all at once.
+  if (frozen) {
+    const settled = await Promise.allSettled(
+      symbols.map(s => loadHistorical(s, startDate, endDate, { frozen: true }))
+    );
+    settled.forEach((r, i) => {
+      if (r.status === 'fulfilled' && r.value && r.value.length > 0) {
+        out.set(symbols[i], r.value);
+      }
+    });
+    console.log(`  ✅ Loaded ${out.size}/${symbols.length} symbols (frozen cache)`);
+    return out;
+  }
 
   for (let i = 0; i < symbols.length; i += concurrency) {
     const batch = symbols.slice(i, i + concurrency);

@@ -52,6 +52,10 @@ async function main() {
     brokerageBps: parseFloat(args['brokerage-bps'] || '10'),
     sttBps:       parseFloat(args['stt-bps']       || '10'),
     stampBps:     parseFloat(args['stamp-bps']     || '1.5'),
+    // M5.6: --frozen-cache makes the run reproducible by skipping the
+    // tail-fetch entirely. Cache may be older than today but stable
+    // across runs. Required for engine-change validation.
+    frozenCache:  args['frozen-cache'] === true || args['frozen-cache'] === 'true',
   };
 
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

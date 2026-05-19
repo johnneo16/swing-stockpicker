@@ -36,6 +36,7 @@ const DEFAULT_CONFIG = {
   brokerageBps:     10,
   sttBps:           10,    // M5.5: 0.10% NSE delivery STT on sell side
   stampBps:        1.5,    // M5.5: 0.015% stamp duty on buy side
+  frozenCache:    false,    // M5.6: skip tail-fetch for reproducible runs
   // Force-include even low-confidence picks? (mirror Pass 2 of live engine)
   includeLowConf:   false,
   // Volatility-adjusted position sizing — multiplies the 1.5% baseline
@@ -66,7 +67,7 @@ export async function runBacktest(universe, config = {}, progressFn = null) {
     universe.map(s => s.symbol),
     fetchStart,
     fetchEnd,
-    { concurrency: 3, delayMs: 350 },
+    { concurrency: 3, delayMs: 350, frozen: !!C.frozenCache },
   );
 
   // Build symbol → metadata lookup
