@@ -192,6 +192,14 @@ export function scoreStock(stockData, marketContext = null, totalCapital = null)
   //   only fire WITH trendline support).
   if (signals.bullishFlag && signals.trendlineSupportValid)  structureScore += 1;
   if (signals.doubleTop)    structureScore -= 3;             // bearish — keep penalty
+  // M5.4 — Central Pivot Range is computed and surfaced on indicators.cpr
+  // for UI display and downstream analysis, but does NOT contribute to
+  // scoring. Empirical backtest showed CPR-based scoring bonuses (above-TC
+  // + narrow-CPR combos) lowered expectancy by 0.45pp because the bullish
+  // bias fires too liberally on quality low-vol stocks already favored by
+  // the existing trend/structure logic — double-counting the same signal.
+  // CPR remains valuable as a visible level for traders reading cards;
+  // scoring integration deferred pending a smarter combination rule.
   structureScore = Math.max(0, Math.min(structureScore, WEIGHTS.structure));
 
   // === TOTAL SCORE ===

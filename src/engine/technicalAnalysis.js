@@ -87,6 +87,38 @@ export function analyzeTechnicals(quotes) {
   const simpleSupport  = Math.min(...recent.map(q => q.low));
   const simpleResistance = Math.max(...recent.map(q => q.high));
 
+  // ── M5.4 — CENTRAL PIVOT RANGE (CPR) ──────────────────────────────────────
+  // CPR is computed from the PRIOR DAY's HLC (not the rolling 20-day high/low
+  // used above for swing-level S/R). It anchors today's expected trading
+  // band:
+  //   PP (Pivot Point)    = (PrevH + PrevL + PrevC) / 3
+  //   BC (Bottom Central) = (PrevH + PrevL) / 2
+  //   TC (Top Central)    = (PP - BC) + PP   = 2·PP - BC
+  // Interpretation (Varsity intraday + swing crossover):
+  //   - Width (TC - BC) relative to price: narrow ≈ pending breakout day,
+  //     wide ≈ ranging/exhausted move.
+  //   - Price ABOVE TC: bullish bias for the day → confirmatory long
+  //   - Price BELOW BC: bearish bias for the day → confirmatory exit / short
+  //   - Price INSIDE [BC, TC]: indecisive — no positional bias
+  let cpr = null;
+  if (quotes.length >= 2) {
+    const prev = quotes[quotes.length - 2];
+    const pp   = (prev.high + prev.low + prev.close) / 3;
+    const bc   = (prev.high + prev.low) / 2;
+    const tc   = 2 * pp - bc;
+    const width = Math.abs(tc - bc);
+    const widthPct = currentPrice > 0 ? (width / currentPrice) * 100 : 0;
+    cpr = {
+      pp, bc, tc, width,
+      widthPct,                            // CPR width as % of current price
+      narrow:    widthPct < 0.5,           // <0.5% = compression → breakout expected
+      wide:      widthPct > 2.0,           // >2.0% = wide range → ranging day
+      aboveTC:   currentPrice > tc,
+      belowBC:   currentPrice < bc,
+      insideCPR: currentPrice >= bc && currentPrice <= tc,
+    };
+  }
+
   // Varsity ch.11 S/R zones — ≥3 touches at ~same price, well-spaced in time,
   // ±0.5% zone width. Returns array of { center, lowBand, highBand, touches,
   // type: 'support' | 'resistance' } sorted by touch count desc.
@@ -188,6 +220,16 @@ export function analyzeTechnicals(quotes) {
     ema9CrossUp:      prevEma9 <= prevEma21 && currentEma9 > currentEma21,
     ema9CrossDown:    prevEma9 >= prevEma21 && currentEma9 < currentEma21,
     fastTrendStack:   currentPrice > currentEma9 && currentEma9 > currentEma21,
+
+    // M5.4 — Central Pivot Range derived from prior day's HLC.
+    //   cprAboveTC   : today price > top-central → bullish day bias
+    //   cprBelowBC   : today price < bottom-central → bearish day bias (warning)
+    //   cprNarrow    : range <0.5% of price → compression → breakout day expected
+    //   cprWide      : range >2.0% of price → range-bound day expected
+    cprAboveTC:       !!cpr && cpr.aboveTC,
+    cprBelowBC:       !!cpr && cpr.belowBC,
+    cprNarrow:        !!cpr && cpr.narrow,
+    cprWide:          !!cpr && cpr.wide,
 
     // ── Multi-timeframe confluence (Varsity TA Finale ch.19 + Dow ch.17-18)
     mtfBullish:       mtf.weeklyTrend === 'up',
@@ -295,6 +337,15 @@ export function analyzeTechnicals(quotes) {
       ema20:        Math.round(currentEma20  * 100) / 100,
       ema50:        Math.round(currentEma50  * 100) / 100,
       ema200:       Math.round(currentEma200 * 100) / 100,
+      // M5.4 Central Pivot Range — null if insufficient history
+      cpr:          cpr ? {
+        pp:        Math.round(cpr.pp       * 100) / 100,
+        bc:        Math.round(cpr.bc       * 100) / 100,
+        tc:        Math.round(cpr.tc       * 100) / 100,
+        widthPct:  Math.round(cpr.widthPct * 100) / 100,
+        narrow:    cpr.narrow,
+        wide:      cpr.wide,
+      } : null,
       atr:          Math.round(atr           * 100) / 100,
       adx:          Math.round(adxValue      * 100) / 100,
       volumeRatio:  Math.round(volumeRatio   * 100) / 100,
