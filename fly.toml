@@ -1,0 +1,99 @@
+# fly.io deployment config for SwingPro.
+#
+# Why fly.io: persistent volumes, no idle sleep (unlike Render free), native
+# Docker, Mumbai region (low-latency to NSE), pay-as-you-go pricing that
+# realistically lands at $3-5/mo for a single-user paper-trading engine.
+#
+# First-time setup:
+#   1. fly auth login                                                # one-time
+#   2. fly launch --no-deploy --copy-config --name swingpro          # creates app
+#   3. fly volumes create swingpro_data --size 1 --region bom        # 1 GB SQLite volume
+#   4. Set secrets (see README "fly.io deploy" section):
+#        fly secrets set ANGELONE_API_KEY=... ANGELONE_CLIENT_ID=... \
+#                        ANGELONE_PASSWORD=... ANGELONE_TOTP_SECRET=...
+#      Optional:
+#        fly secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=...
+#   5. fly deploy
+#
+# Each subsequent deploy is just `fly deploy` — fly reuses the same image
+# build pipeline (driven by the project's Dockerfile + .dockerignore).
+#
+# Recovery / inspection:
+#   fly status                    # current machine + health state
+#   fly logs                      # live structured-JSON stream
+#   fly ssh console               # interactive shell into the running machine
+#   fly machines list             # machine IDs (one per region)
+#   fly volumes list              # data volumes
+#
+# IMPORTANT: app name must match an account-unique slug. Edit `app =` after
+# you decide on yours — `swingpro` is taken globally on fly.io, so most
+# users will need something like `swingpro-yourname`.
+
+app = "swingpro"               # CHANGE THIS to your account-unique name
+primary_region = "bom"          # Mumbai — closest fly.io region to NSE
+kill_signal    = "SIGINT"
+kill_timeout   = "30s"
+
+[build]
+  # Use the project's existing two-stage Dockerfile. fly will build this
+  # remotely on every `fly deploy` so the local machine doesn't need
+  # Docker available.
+  dockerfile = "Dockerfile"
+
+[env]
+  # Container mode: stdout-only logs (fly captures them), Postgres-style
+  # path, IST timezone for cron correctness.
+  NODE_ENV         = "production"
+  PORT             = "3001"
+  TZ               = "Asia/Kolkata"
+  LOG_STDOUT_ONLY  = "1"
+  SWINGPRO_DB      = "/app/data/swingpro.db"
+
+# ── Persistent volume — SQLite DB + backtest cache + JWT cache ─────────────
+# Mounted at the same path the Dockerfile expects (/app/data). The volume
+# survives deploys and restarts; only `fly volumes destroy` removes it.
+# Provision via:  fly volumes create swingpro_data --size 1 --region bom
+[[mounts]]
+  source      = "swingpro_data"
+  destination = "/app/data"
+  # Keep volume on a single machine — SQLite is not multi-writer safe.
+  # If you ever want HA, that's the cue to migrate to Postgres (see
+  # docs/RUNBOOK.md §11 cloud-migration prep).
+
+# ── HTTP service ───────────────────────────────────────────────────────────
+[http_service]
+  internal_port      = 3001
+  force_https        = true       # fly issues a wildcard cert automatically
+  auto_stop_machines = "off"      # CRITICAL: keep the machine running 24/7
+  auto_start_machines = true      #          (cron jobs must fire on schedule)
+  min_machines_running = 1
+  processes          = ["app"]
+
+  # Lightweight up-check that just tells the load balancer we're alive.
+  # Different from the orchestrator-deep /api/health/macro — that one
+  # is exercised by the in-app HEALTHCHECK directive declared in the
+  # Dockerfile (which fly also runs internally).
+  [http_service.concurrency]
+    type        = "connections"
+    hard_limit  = 50
+    soft_limit  = 25
+
+  [[http_service.checks]]
+    grace_period  = "30s"          # wait this long after boot before counting failures
+    interval      = "60s"
+    method        = "GET"
+    path          = "/api/health/macro"
+    protocol      = "http"
+    timeout       = "10s"
+
+# ── VM size ────────────────────────────────────────────────────────────────
+# shared-cpu-1x / 512 MB is enough headroom for a single-user setup:
+#   - Express server idle: ~80 MB
+#   - Orchestrator with 11 cron jobs: ~30 MB
+#   - SQLite open + WAL: ~50 MB
+#   - Headroom for a backtest run: ~200 MB
+# Bump to 1 GB if you start seeing OOMs in `fly logs` during weekly backtests.
+[[vm]]
+  cpu_kind = "shared"
+  cpus     = 1
+  memory   = "512mb"

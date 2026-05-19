@@ -558,10 +558,12 @@ captures the constraints to design for.
 
 | Provider | Status | Why |
 |---|---|---|
-| **Render paid (Starter $7/mo)** | Default plan | No sleep; persistent disk; managed Postgres add-on; simple Node deploy from `render.yaml` (already in repo) |
-| **fly.io** | Backup plan | Free tier with persistent volume; multi-region if ever needed; needs Dockerfile |
-| **Render free tier** | ❌ Do NOT use | Sleeps after 15 min HTTP inactivity → **kills all node-cron jobs**. Hard-blocker for an orchestrator-driven app |
-| **Heroku** | ❌ Not considered | No free tier; dyno cycling complicates cron |
+| **fly.io (Mumbai/bom region)** | **Chosen** | Persistent volumes, no sleep, Mumbai-region for low-latency to NSE, native Docker. `fly.toml` in repo. Realistic single-user cost ~$3-5/mo. |
+| Render paid (Starter $7/mo) | Considered | No sleep on paid tier; persistent disk. Earlier session prep'd `render.yaml` but reliability and pricing pushed us to fly.io. The file has been removed; restore from git history if you want to go back. |
+| Hetzner Cloud + Docker Compose | Backup plan | Cheapest (~€4/mo) but more ops work (SSH, firewall, manual security updates). Closest region to NSE is Singapore. |
+| Railway ($5/mo flat) | Backup plan | Simplest deploy; less powerful than fly.io. |
+| Render **free** tier | ❌ Do NOT use | Sleeps after 15 min HTTP inactivity → **kills all node-cron jobs**. Hard-blocker for an orchestrator-driven app. This is the issue that triggered the move to fly.io. |
+| Heroku | ❌ Not considered | No free tier; dyno cycling complicates cron. |
 
 ### What must change before cloud
 
@@ -620,9 +622,83 @@ captures the constraints to design for.
 
 ### Cost ceiling
 
-Target: **≤ $15/mo** total cloud spend (Render Starter $7 + managed Postgres
-$7). If costs creep past this without a clear performance reason, fall back
-to fly.io free tier with persistent volume.
+Target: **≤ $15/mo** total cloud spend. With fly.io on shared-cpu-1x +
+512 MB + 1 GB volume the realistic bill is closer to **$3-5/mo** for a
+single-user paper-trading engine. If usage climbs unexpectedly (e.g. you
+bump the VM to 1 GB for backtests), check `fly orgs invoices` and
+consider a 1 GB → 2 GB volume / RAM bump rather than a host change.
+
+### Operating on fly.io (day-to-day commands)
+
+Initial setup happens via the README "Deploy to fly.io" runbook. Once
+deployed, these are the commands you'll actually use:
+
+```bash
+# What's currently running
+fly status                       # machine state, health-check status, region
+fly machines list                # machine IDs (usually one)
+fly volumes list                 # persistent volumes
+
+# Logs
+fly logs                         # live tail (Ctrl-C to exit)
+fly logs --no-tail | head -100   # most-recent 100 lines, no follow
+
+# Re-deploy after a code change (image rebuilt remotely)
+git commit -am "..."             # commit first, then:
+fly deploy
+
+# Restart the machine (e.g. after restoring DB from backup)
+fly machine restart <machine-id>
+
+# SSH into the running machine
+fly ssh console                  # interactive shell
+fly ssh sftp shell               # SFTP for file transfer (e.g. upload swingpro.db)
+
+# Manage secrets
+fly secrets list                 # names only, never values
+fly secrets set KEY=value        # set/update a secret (triggers redeploy)
+fly secrets unset KEY            # remove a secret
+
+# Scale (if you outgrow shared-cpu-1x / 512 MB)
+fly scale memory 1024            # bump RAM to 1 GB
+fly scale vm shared-cpu-2x       # bump CPU
+
+# Restoring the DB from backup
+fly ssh sftp shell
+> put data/swingpro.db /app/data/swingpro.db
+> exit
+fly machine restart <machine-id>
+```
+
+### Verifying the deploy is healthy
+
+```bash
+# From your laptop
+curl -sf https://<your-app>.fly.dev/api/health/macro | python3 -m json.tool
+
+# Should show:
+#   ok: True
+#   scheduler.running: True
+#   scheduler.jobs: 11
+#   killswitch.tripped: False
+```
+
+If `scheduler.jobs < 11`, check `fly logs` for boot errors. If `ok=false`,
+the watchdog endpoint is reporting a degraded state — DB, killswitch, or
+job timeout. Cross-reference with `/api/errors` for the structured error
+journal.
+
+### Disabling the Mac launchd agents (avoid double-run)
+
+Once fly.io is healthy, stop the Mac side so the two engines don't both
+trade against the same Angel One account:
+
+```bash
+bash scripts/uninstall-launchd.sh   # removes all 3 launchd agents
+```
+
+The Mac DB and backups stay in place — bring everything back with
+`scripts/install-launchd.sh` if you ever want a local fallback.
 
 ---
 

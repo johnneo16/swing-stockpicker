@@ -399,8 +399,69 @@ Notes:
   `~/SwingProBackups/` (see RUNBOOK §6).
 - `.env` is mounted at runtime via `env_file`, never baked into the image.
 
+### Deploy to fly.io (24/7 cloud)
+
+For continuous hosting outside the Mac. fly.io was chosen over Render
+because Render's free tier sleeps after 15 min of HTTP inactivity, which
+kills the cron-driven orchestrator. fly.io machines stay running unless
+explicitly stopped, has Mumbai region for low-latency to NSE, and
+realistic single-user cost lands at **$3-5/month**.
+
+```bash
+# 0. One-time install
+brew install flyctl
+fly auth login                                # opens browser; sign up if new
+
+# 1. Edit the app name in fly.toml — must be globally unique on fly.io
+#    (default "swingpro" is taken). Pick something like "swingpro-arindam".
+
+# 2. Create the app + 1 GB persistent volume in Mumbai
+fly launch --no-deploy --copy-config
+fly volumes create swingpro_data --size 1 --region bom
+
+# 3. Set secrets — values stay on fly.io's secret store, never in source
+fly secrets set \
+  ANGELONE_API_KEY=...     \
+  ANGELONE_CLIENT_ID=...   \
+  ANGELONE_PASSWORD=...    \
+  ANGELONE_TOTP_SECRET=...
+
+# Optional: Telegram alerts
+fly secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=...
+
+# 4. Deploy. fly builds the Dockerfile remotely, pushes the image, runs it.
+fly deploy
+
+# 5. Verify
+fly status                              # should show the machine "started" + "passing"
+fly logs                                # tail structured-JSON logs
+curl -s https://<your-app>.fly.dev/api/health/macro | python3 -m json.tool
+
+# Re-deploy on any change
+fly deploy
+```
+
+Notes:
+- The DB lives on the `swingpro_data` volume mounted at `/app/data`. It
+  survives deploys and restarts; only `fly volumes destroy` removes it.
+- `auto_stop_machines = "off"` in `fly.toml` is the critical flag — it
+  keeps the VM running 24/7 so cron jobs fire on schedule, no matter
+  whether HTTP traffic is hitting the app.
+- VM is `shared-cpu-1x / 512 MB` — enough for a single-user setup.
+  Bump in `fly.toml` if `fly logs` shows OOM during weekly backtests.
+- If you want to migrate your existing local DB to the cloud:
+  `fly ssh sftp shell` → `put data/swingpro.db /app/data/swingpro.db`
+  Then `fly machine restart <id>` to pick it up.
+
+**Don't run both Mac launchd and fly.io simultaneously** — they'll
+generate independent picks against the same Angel One account and
+duplicate Telegram alerts. Pick one as the production deployment;
+keep the other stopped (e.g. `bash scripts/uninstall-launchd.sh`)
+or use it as a cold standby.
+
 **Full ops reference** (daily checks, killswitch recovery, DB restore, new-machine
-install, troubleshooting, cloud-migration prep): see [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
+install, troubleshooting, cloud-migration prep, fly.io operations): see
+[`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 ---
 
