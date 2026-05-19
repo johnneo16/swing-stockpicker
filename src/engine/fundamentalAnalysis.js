@@ -306,9 +306,45 @@ export function scoreFundamentals(fundamentals) {
     }
   }
 
-  // Tier-3 metrics (M5.1) are exposed on the fundamentals object but do NOT
-  // affect score yet — wiring them into the rubric is M5.2, where we'll
-  // backtest the change against the Run #17 baseline before committing.
+  // === TIER-3 (M5.2): CASH GENERATION (max 1 point) — Varsity FA ch.7 ===
+  // CFO is the cleanest test of "real" earnings vs accounting profit.
+  // 5-year average ≥ 0 = cash-generating business; < 0 = burning cash.
+  if (fundamentals.cfo5yAvg != null) {
+    maxScore += 1;
+    if (fundamentals.cfo5yAvg > 0) {
+      score += 1;
+      insights.push(`5y avg CFO ₹${fundamentals.cfo5yAvg}Cr — positive cash generation`);
+    } else {
+      // Active penalty: negative CFO is a strong warning signal
+      score = Math.max(0, score - 0.5);
+      insights.push(`5y avg CFO ₹${fundamentals.cfo5yAvg}Cr — cash-burning (Varsity caution)`);
+    }
+  }
+
+  // === TIER-3 (M5.2): OPERATING MARGIN (max 1.5 points) — Varsity FA ch.6 ===
+  // Premium OPM is a moat indicator. Varsity's bands roughly align with:
+  //   ≥25% = excellent (defensible pricing power)
+  //   15-25% = good (typical for quality businesses)
+  //   10-15% = average (commodity exposure)
+  //   <10% = weak (price-taker, low margin)
+  if (fundamentals.operatingMargin != null) {
+    maxScore += 1.5;
+    if (fundamentals.operatingMargin >= 25)      { score += 1.5; insights.push(`OPM ${fundamentals.operatingMargin}% — premium margins (pricing power)`); }
+    else if (fundamentals.operatingMargin >= 15) { score += 1;   insights.push(`OPM ${fundamentals.operatingMargin}% — quality margins`); }
+    else if (fundamentals.operatingMargin >= 10) { score += 0.5; insights.push(`OPM ${fundamentals.operatingMargin}% — average margins`); }
+    else                                          { score += 0;   insights.push(`OPM ${fundamentals.operatingMargin}% — thin margins`); }
+  }
+
+  // === TIER-3 (M5.2): SALES CAGR (max 1 point) — Varsity FA ch.7 ===
+  // 5-year compounded sales growth is the headline growth metric Karthik
+  // emphasises in the FA module. Negative CAGR is an active sell signal.
+  if (fundamentals.salesCagr5y != null) {
+    maxScore += 1;
+    if (fundamentals.salesCagr5y >= 20)      { score += 1;    insights.push(`5y Sales CAGR ${fundamentals.salesCagr5y}% — strong growth`); }
+    else if (fundamentals.salesCagr5y >= 10) { score += 0.5;  insights.push(`5y Sales CAGR ${fundamentals.salesCagr5y}% — steady growth`); }
+    else if (fundamentals.salesCagr5y >= 0)  { score += 0;    insights.push(`5y Sales CAGR ${fundamentals.salesCagr5y}% — flat`); }
+    else                                      { score -= 0.5; insights.push(`5y Sales CAGR ${fundamentals.salesCagr5y}% — declining (Varsity avoid)`); }
+  }
 
   // Normalize to 0–10
   const normalizedScore = maxScore > 0 ? Math.round((score / maxScore) * 10 * 10) / 10 : 5;

@@ -173,20 +173,73 @@ describe('parseFundamentals — Tier-3 (M5.1) — salesCagr5y', () => {
   });
 });
 
-describe('scoreFundamentals — unchanged behavior under M5.1', () => {
-  it('produces the same score for legacy ratios regardless of new Tier-3 fields', () => {
-    // M5.1 added cfo5yAvg / operatingMargin / salesCagr5y to the parser
-    // output, but scoreFundamentals MUST NOT consume them yet. Verify
-    // that adding/omitting the new fields produces identical scores.
-    const legacy = {
-      peRatio: 18.5, roe: 22.4, roce: 28.1, debtToEquity: 0.34,
-      dividendYield: 1.2, fiftyTwoWeekHigh: 1612, fiftyTwoWeekLow: 1115,
-    };
-    const withTier3 = { ...legacy, cfo5yAvg: 1600, operatingMargin: 20, salesCagr5y: 17 };
+describe('scoreFundamentals — M5.2 Tier-3 scoring', () => {
+  const baseLegacy = {
+    peRatio: 18.5, roe: 22.4, roce: 28.1, debtToEquity: 0.34,
+    dividendYield: 1.2, fiftyTwoWeekHigh: 1612, fiftyTwoWeekLow: 1115,
+  };
 
-    const s1 = scoreFundamentals(legacy);
-    const s2 = scoreFundamentals(withTier3);
-    expect(s1.score).toBe(s2.score);
-    expect(s1.rating).toBe(s2.rating);
+  it('returns the same score whether Tier-3 fields are present-null or omitted', () => {
+    // Both cases should produce identical scores — null Tier-3 means
+    // "data unavailable", which contributes 0 to numerator AND maxScore.
+    const withNulls = { ...baseLegacy, cfo5yAvg: null, operatingMargin: null, salesCagr5y: null };
+    expect(scoreFundamentals(baseLegacy).score).toBe(scoreFundamentals(withNulls).score);
+  });
+
+  it('rewards positive 5y avg CFO (+1 point of 3.5 added maxScore)', () => {
+    const withGoodCFO = { ...baseLegacy, cfo5yAvg: 1500 };
+    const result = scoreFundamentals(withGoodCFO);
+    expect(result.details).toMatch(/positive cash generation/);
+    // Score change is normalized: the legacy 10-point ceiling now divides
+    // across more maxScore, so the absolute number can shift either way.
+    // What matters is the row contributed.
+  });
+
+  it('penalizes negative 5y avg CFO', () => {
+    const burning = { ...baseLegacy, cfo5yAvg: -200 };
+    const result = scoreFundamentals(burning);
+    expect(result.details).toMatch(/cash-burning/);
+  });
+
+  it('rewards premium operating margins (≥25%)', () => {
+    const premium = { ...baseLegacy, operatingMargin: 30 };
+    expect(scoreFundamentals(premium).details).toMatch(/premium margins/);
+  });
+
+  it('flags thin operating margins (<10%)', () => {
+    const thin = { ...baseLegacy, operatingMargin: 6 };
+    expect(scoreFundamentals(thin).details).toMatch(/thin margins/);
+  });
+
+  it('rewards strong 5y Sales CAGR (≥20%)', () => {
+    const strong = { ...baseLegacy, salesCagr5y: 24 };
+    expect(scoreFundamentals(strong).details).toMatch(/strong growth/);
+  });
+
+  it('penalizes declining sales (negative CAGR)', () => {
+    const declining = { ...baseLegacy, salesCagr5y: -3 };
+    expect(scoreFundamentals(declining).details).toMatch(/declining/);
+  });
+
+  it('ranks a Tier-3-complete excellent company above the same legacy ratios with no Tier-3', () => {
+    // A name with strong fundamentals AND Tier-3 quality (positive CFO,
+    // premium OPM, strong CAGR) must score at least as high as the same
+    // name without Tier-3 data — the new dimensions should add signal,
+    // not muddle it.
+    const noTier3 = baseLegacy;
+    const fullTier3 = {
+      ...baseLegacy, cfo5yAvg: 2000, operatingMargin: 28, salesCagr5y: 22,
+    };
+    expect(scoreFundamentals(fullTier3).score).toBeGreaterThanOrEqual(scoreFundamentals(noTier3).score);
+  });
+
+  it('ranks an excellent company strictly higher than a cash-burning one with the same TA ratios', () => {
+    const excellent = {
+      ...baseLegacy, cfo5yAvg: 2000, operatingMargin: 28, salesCagr5y: 22,
+    };
+    const concerning = {
+      ...baseLegacy, cfo5yAvg: -500, operatingMargin: 5, salesCagr5y: -3,
+    };
+    expect(scoreFundamentals(excellent).score).toBeGreaterThan(scoreFundamentals(concerning).score);
   });
 });
