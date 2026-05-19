@@ -334,19 +334,29 @@ export async function jobRiskKillswitch({
   killDrawdownPct      = 8,
   killCatastrophicPct  = 8,   // single-position loss threshold
   capital              = CONFIG.TOTAL_CAPITAL,
+  rollingWindowDays    = 90,   // killswitch fix: rolling DD, not all-time
 } = {}) {
   const stats = tradesRepo.journalStats('paper');
   const positions = listOpenPositions('paper');
   const portfolio = portfolioSummary('paper', capital);
 
-  // Combined drawdown signal: realized DD + unrealized loss as % of capital
+  // Combined drawdown signal: realized rolling-window DD + unrealized loss
+  // as % of capital.
+  //
+  // FIX (2026-05-19): previously used stats.maxDrawdownPct (all-time max,
+  // monotonically non-decreasing). That made the killswitch re-trip every
+  // single day at 16:15 IST forever once any 8%+ DD had been recorded,
+  // even when current equity was healthy. Switched to rollingDrawdownPct
+  // over a 90-day window so old drawdown sequences stop dictating today's
+  // tradeability. live drawdown + over-leverage + catastrophic-loss
+  // triggers are unchanged.
   const startingCapital = stats.startingCapital || capital;
   const unrealizedPnl = positions.reduce((s, p) => s + (p.unrealizedPnl || 0), 0);
   const totalEquity = (stats.finalEquity || startingCapital) + unrealizedPnl;
   const peak = Math.max(stats.finalEquity || startingCapital, startingCapital);
   const liveDrawdownPct = peak > 0 ? Math.max(0, (peak - totalEquity) / peak * 100) : 0;
-  const recordedMaxDD = stats.maxDrawdownPct || 0;
-  const drawdown = Math.max(liveDrawdownPct, recordedMaxDD);
+  const rolling = tradesRepo.rollingDrawdownPct('paper', rollingWindowDays);
+  const drawdown = Math.max(liveDrawdownPct, rolling.maxDrawdownPct);
 
   const triggers = [];
 
@@ -390,7 +400,8 @@ export async function jobRiskKillswitch({
       ok: true,
       message: `🛑 KILLSWITCH TRIPPED: ${triggers.join(', ')}. Pre-market disabled.`,
       detail: {
-        drawdown, deploymentPct: portfolio.deploymentPct,
+        drawdown, liveDrawdownPct, rolling,
+        deploymentPct: portfolio.deploymentPct,
         positionCount: positions.length,
         triggers, tripped: true,
       },
@@ -399,9 +410,10 @@ export async function jobRiskKillswitch({
 
   return {
     ok: true,
-    message: `Risk OK — drawdown ${drawdown.toFixed(2)}%, deployed ${portfolio.deploymentPct}%, ${positions.length}/${CONFIG.MAX_CONCURRENT_TRADES} open`,
+    message: `Risk OK — drawdown ${drawdown.toFixed(2)}% (rolling ${rollingWindowDays}d ${rolling.maxDrawdownPct}%, live ${liveDrawdownPct.toFixed(2)}%), deployed ${portfolio.deploymentPct}%, ${positions.length}/${CONFIG.MAX_CONCURRENT_TRADES} open`,
     detail: {
-      drawdown, deploymentPct: portfolio.deploymentPct,
+      drawdown, liveDrawdownPct, rolling,
+      deploymentPct: portfolio.deploymentPct,
       positionCount: positions.length,
       triggers: [], tripped: false,
     },

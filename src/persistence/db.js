@@ -445,6 +445,58 @@ export const tradesRepo = {
   },
 
   updateStop(id, stop) { updateStopStmt.run({ id, stop }); },
+
+  /**
+   * Compute max drawdown over a rolling window of closed trades.
+   *
+   * Replaces the prior pattern where the killswitch read `journalStats.
+   * maxDrawdownPct`, an ALL-TIME monotonically non-decreasing value. The
+   * old behavior tripped the killswitch every day at 16:15 IST forever
+   * once any 8%+ DD had ever been recorded, even when current equity was
+   * healthy and the offending trade-sequence was months old.
+   *
+   * This method walks the equity curve formed by closed trades inside
+   * `windowDays` (default 90) and returns the largest peak-to-trough
+   * drawdown observed in that window. Older trades are ignored.
+   *
+   * Returns 0 when no trades fall in the window (no recent activity →
+   * no recent drawdown signal → killswitch falls back to live/leverage
+   * /catastrophic-loss triggers).
+   *
+   * @param {string} mode 'paper' | 'live'
+   * @param {number} windowDays
+   * @returns {{ maxDrawdownPct: number, tradesInWindow: number, windowDays: number }}
+   */
+  rollingDrawdownPct(mode = 'paper', windowDays = 90) {
+    const cutoff = new Date(Date.now() - windowDays * 86400000).toISOString();
+    const trades = db.prepare(
+      `SELECT realized_pnl, capital, exit_date FROM trades
+       WHERE status = 'closed' AND mode = ? AND exit_date >= ?
+       ORDER BY exit_date ASC`
+    ).all(mode, cutoff);
+
+    if (trades.length === 0) {
+      return { maxDrawdownPct: 0, tradesInWindow: 0, windowDays };
+    }
+
+    // Reconstruct equity over the window starting at startingCapital
+    // (snapshot from the earliest trade's capital field, falling back to 50k).
+    const startingCapital = trades[0].capital || 50000;
+    let equity = startingCapital;
+    let peak   = startingCapital;
+    let maxDD  = 0;
+    for (const t of trades) {
+      equity += (t.realized_pnl || 0);
+      if (equity > peak) peak = equity;
+      const dd = peak > 0 ? (peak - equity) / peak * 100 : 0;
+      if (dd > maxDD) maxDD = dd;
+    }
+    return {
+      maxDrawdownPct: Math.round(maxDD * 100) / 100,
+      tradesInWindow: trades.length,
+      windowDays,
+    };
+  },
   getOpen(mode = 'paper', assetClass = null) {
     return assetClass
       ? getOpenTradesByClassStmt.all(mode, assetClass)
