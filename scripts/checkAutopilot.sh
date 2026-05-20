@@ -22,11 +22,11 @@ fi
 
 echo ""
 echo "━━━ Health ━━━"
-curl -s --max-time 3 http://localhost:3001/api/health/db | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'  ✓ DB ok ({len(d[\"tables\"])} tables)')" 2>/dev/null || echo "  ✗ Server not responding"
+curl -s --max-time 3 http://localhost:51280/api/health/db | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'  ✓ DB ok ({len(d[\"tables\"])} tables)')" 2>/dev/null || echo "  ✗ Server not responding"
 
 echo ""
 echo "━━━ Open positions ━━━"
-curl -s --max-time 5 'http://localhost:3001/api/positions?mode=paper' 2>/dev/null | python3 -c "
+curl -s --max-time 5 'http://localhost:51280/api/positions?mode=paper' 2>/dev/null | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 ps = d.get('positions', [])
@@ -39,7 +39,7 @@ else:
 
 echo ""
 echo "━━━ Portfolio ━━━"
-curl -s --max-time 5 'http://localhost:3001/api/portfolio/live?mode=paper&capital=50000' 2>/dev/null | python3 -c "
+curl -s --max-time 5 'http://localhost:51280/api/portfolio/live?mode=paper&capital=50000' 2>/dev/null | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 print(f\"  Deployed ₹{d.get('capitalDeployed', 0):,} ({d.get('deploymentPct', 0)}%)  |  Cash ₹{d.get('cashRemaining', 0):,}  |  Unrealized ₹{d.get('unrealizedPnl', 0):,}\")
@@ -47,7 +47,7 @@ print(f\"  Deployed ₹{d.get('capitalDeployed', 0):,} ({d.get('deploymentPct', 
 
 echo ""
 echo "━━━ Journal stats (realized) ━━━"
-curl -s --max-time 5 'http://localhost:3001/api/journal/stats?mode=paper' 2>/dev/null | python3 -c "
+curl -s --max-time 5 'http://localhost:51280/api/journal/stats?mode=paper' 2>/dev/null | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 if d.get('totalTrades', 0) == 0:
@@ -58,7 +58,7 @@ else:
 
 echo ""
 echo "━━━ Recent worker activity ━━━"
-curl -s --max-time 5 'http://localhost:3001/api/scheduler/log?limit=10' 2>/dev/null | python3 -c "
+curl -s --max-time 5 'http://localhost:51280/api/scheduler/log?limit=10' 2>/dev/null | python3 -c "
 import sys, json
 runs = json.load(sys.stdin).get('runs', [])
 for r in runs:

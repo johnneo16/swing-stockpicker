@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-HEALTH_URL="${SWINGPRO_HEALTH_URL:-http://localhost:3001/api/health/macro}"
+HEALTH_URL="${SWINGPRO_HEALTH_URL:-http://localhost:51280/api/health/macro}"
 SERVICE_LABEL="${SWINGPRO_SERVICE_LABEL:-com.swingpro.server}"
 PLIST_PATH="${HOME}/Library/LaunchAgents/${SERVICE_LABEL}.plist"
 LOG_FILE="${HOME}/Library/Logs/swingpro-watchdog.log"

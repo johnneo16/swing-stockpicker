@@ -35,7 +35,7 @@ DB backup/restore, and step-by-step recovery scenarios.
      ▼
 com.swingpro.server  ←──── KeepAlive (auto-restarts on crash)
      │
-     ├─ Express API on :3001
+     ├─ Express API on :51280
      ├─ Vite-built React SPA served from dist/
      └─ Orchestrator: ~10 cron jobs (IST, NSE-holiday-aware)
 
@@ -69,7 +69,7 @@ launchctl list | grep swingpro
 #     -    0  com.swingpro.watchdog
 
 # Hit the health endpoint directly
-curl -s http://localhost:3001/api/health/macro | python3 -m json.tool | head -40
+curl -s http://localhost:51280/api/health/macro | python3 -m json.tool | head -40
 
 # Tail the live app log (structured JSON — one line per event)
 tail -F ~/Library/Logs/swingpro-app.$(date +%Y-%m-%d).log
@@ -121,14 +121,14 @@ launchctl list com.swingpro.server
 # "PID" key should be non-zero
 
 # Confirm the port is open
-lsof -nP -iTCP:3001 | grep LISTEN
+lsof -nP -iTCP:51280 | grep LISTEN
 
 # Confirm the API responds
-curl -sf http://localhost:3001/api/health/macro | python3 -c \
+curl -sf http://localhost:51280/api/health/macro | python3 -c \
   "import sys,json; d=json.load(sys.stdin); print('ok' if d['ok'] else 'UNHEALTHY', 'scheduler:', d['scheduler']['running'])"
 
 # Check the last job firings (shows all cron job names + last run time)
-curl -s http://localhost:3001/api/health/macro | python3 -c \
+curl -s http://localhost:51280/api/health/macro | python3 -c \
   "import sys,json; d=json.load(sys.stdin)
 for j in d['scheduler']['jobs']:
     lr = j.get('lastRun', {}).get('startedAt', 'never')
@@ -210,7 +210,7 @@ auto-tracked until you manually review and reset it.
 
 The killswitch status appears in three places:
 1. **UI → Health tab** — red banner with the trip timestamp and reason
-2. **Health API** — `curl -s http://localhost:3001/api/health/macro | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['killswitch'])"`
+2. **Health API** — `curl -s http://localhost:51280/api/health/macro | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['killswitch'])"`
 3. **DB directly** — `sqlite3 data/swingpro.db "SELECT * FROM settings WHERE key LIKE 'killswitch%'"`
 
 A typical trip reason: `"drawdown >= 8%: rolling P&L -₹4250 on ₹50000 pool"`.
@@ -221,7 +221,7 @@ A typical trip reason: `"drawdown >= 8%: rolling P&L -₹4250 on ₹50000 pool"`
 
 ```bash
 # What tripped it and when?
-curl -s http://localhost:3001/api/health/macro | python3 -c \
+curl -s http://localhost:51280/api/health/macro | python3 -c \
   "import sys,json; d=json.load(sys.stdin); ks=d['killswitch']; print(ks)"
 
 # Review open positions and recent closed trades in the UI (Live tab)
@@ -241,7 +241,7 @@ Open the Health tab in the browser → click **Reset Killswitch**. This calls
 **Step 3 (alt) — Reset via curl**
 
 ```bash
-curl -sX POST http://localhost:3001/api/scheduler/killswitch/reset \
+curl -sX POST http://localhost:51280/api/scheduler/killswitch/reset \
   -H "Content-Type: application/json" | python3 -m json.tool
 # Expected: {"success": true}
 ```
@@ -249,7 +249,7 @@ curl -sX POST http://localhost:3001/api/scheduler/killswitch/reset \
 **Step 4 — Verify**
 
 ```bash
-curl -s http://localhost:3001/api/health/macro | python3 -c \
+curl -s http://localhost:51280/api/health/macro | python3 -c \
   "import sys,json; d=json.load(sys.stdin); print('killswitch tripped:', d['killswitch']['tripped'])"
 # Should print: killswitch tripped: False
 ```
@@ -319,7 +319,7 @@ sqlite3 data/swingpro.db "SELECT COUNT(*) FROM trades;"
 #    but this makes it explicit)
 launchctl start com.swingpro.server
 sleep 5
-curl -sf http://localhost:3001/api/health/macro | python3 -c \
+curl -sf http://localhost:51280/api/health/macro | python3 -c \
   "import sys,json; d=json.load(sys.stdin); print('restored server ok:', d['ok'])"
 ```
 
@@ -402,7 +402,7 @@ bash scripts/install-launchd.sh
 # 7. Verify
 sleep 5
 launchctl list | grep swingpro
-curl -sf http://localhost:3001/api/health/macro | python3 -c \
+curl -sf http://localhost:51280/api/health/macro | python3 -c \
   "import sys,json; d=json.load(sys.stdin); print('ok:', d['ok'])"
 ```
 
@@ -430,7 +430,7 @@ Run between 08:30–09:00 IST on any trading day.
 launchctl list | grep swingpro
 
 # 2. Confirm server is healthy
-curl -sf http://localhost:3001/api/health/macro | python3 -c \
+curl -sf http://localhost:51280/api/health/macro | python3 -c \
   "import sys,json; d=json.load(sys.stdin)
 print('ok:', d['ok'])
 print('scheduler:', d['scheduler']['running'])
@@ -447,7 +447,7 @@ ls -lh ~/SwingProBackups/$(date -v-1d +%Y-%m-%d)/swingpro.db 2>/dev/null || \
   echo "WARNING: yesterday's backup missing"
 
 # 5. Open the UI
-open http://localhost:3001
+open http://localhost:51280
 # → Health tab for live agent status
 # → Today tab after 09:30 IST to see picks
 ```
@@ -463,7 +463,7 @@ open http://localhost:3001
 tail -50 ~/Library/Logs/swingpro.err.log
 
 # Common causes:
-#   - Port 3001 already in use: lsof -nP -iTCP:3001 | grep LISTEN
+#   - Port 51280 already in use: lsof -nP -iTCP:51280 | grep LISTEN
 #   - Missing .env: ls -la .env
 #   - Missing node_modules: npm install
 #   - DB locked (another process open): fuser data/swingpro.db
@@ -474,7 +474,7 @@ tail -50 ~/Library/Logs/swingpro.err.log
 
 ```bash
 # Did the morning scan actually fire?
-curl -s http://localhost:3001/api/health/macro | python3 -c \
+curl -s http://localhost:51280/api/health/macro | python3 -c \
   "import sys,json; d=json.load(sys.stdin)
 for j in d['scheduler']['jobs']:
     if 'scan' in j['id'] or 'pre-market' in j['id']:
@@ -747,21 +747,21 @@ If you want Telegram on a specific job error, pass `alert: true` to
 
 ```bash
 # Trigger a synthetic critical alert end-to-end
-curl -s -X POST http://localhost:3001/api/test/alert 2>/dev/null  # if you've added one
+curl -s -X POST http://localhost:51280/api/test/alert 2>/dev/null  # if you've added one
 # Otherwise: tail the journal and force a known failure
-curl -sX POST http://localhost:3001/api/scheduler/jobs/nonexistent/run
+curl -sX POST http://localhost:51280/api/scheduler/jobs/nonexistent/run
 # Then check:
-curl -s "http://localhost:3001/api/errors?limit=5" | python3 -m json.tool
+curl -s "http://localhost:51280/api/errors?limit=5" | python3 -m json.tool
 ```
 
 ### Reading the error journal
 
 ```bash
 # Recent 50 errors (any severity)
-curl -s http://localhost:3001/api/errors | python3 -m json.tool
+curl -s http://localhost:51280/api/errors | python3 -m json.tool
 
 # Only critical
-curl -s "http://localhost:3001/api/errors?severity=critical&limit=20" | python3 -m json.tool
+curl -s "http://localhost:51280/api/errors?severity=critical&limit=20" | python3 -m json.tool
 
 # Direct DB query
 sqlite3 data/swingpro.db "

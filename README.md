@@ -320,7 +320,7 @@ ANGELONE_PASSWORD=...          # 4-digit trading MPIN — NOT your login passwor
 ANGELONE_TOTP_SECRET=...       # 26-char base32 secret from the QR (not the QR URL)
 
 # Server
-PORT=3001
+PORT=51280
 NODE_ENV=production            # use "development" only when running npm run dev
 
 # Optional overrides
@@ -341,8 +341,8 @@ TELEGRAM_CHAT_ID=              # your numeric chat ID
 
 ```bash
 npm install
-npm run server     # Express + orchestrator on :3001
-npm run dev        # Vite dev server on :5173 (proxies /api to :3001)
+npm run server     # Express + orchestrator on :51280
+npm run dev        # Vite dev server on :5173 (proxies /api to :51280)
 ```
 
 ### Production (self-hosted on macOS)
@@ -361,11 +361,11 @@ The install script sets up:
 ```bash
 # Verify everything is up
 launchctl list | grep swingpro
-curl -s http://localhost:3001/api/health/macro | python3 -c \
+curl -s http://localhost:51280/api/health/macro | python3 -c \
   "import sys,json; d=json.load(sys.stdin); print('ok:', d['ok'])"
 
 # Open the UI
-open http://localhost:3001
+open http://localhost:51280
 ```
 
 To stop and remove all agents: `bash scripts/uninstall-launchd.sh`
@@ -382,7 +382,7 @@ docker compose up -d --build
 docker compose logs -f swingpro
 
 # Health check
-curl -sf http://localhost:3001/api/health/macro | python3 -c \
+curl -sf http://localhost:51280/api/health/macro | python3 -c \
   "import sys,json; d=json.load(sys.stdin); print('ok:', d['ok'])"
 
 # Stop (DB volume `swingpro-data` is preserved)

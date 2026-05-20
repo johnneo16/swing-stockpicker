@@ -44,7 +44,7 @@ kill_timeout   = "30s"
   # Container mode: stdout-only logs (fly captures them), Postgres-style
   # path, IST timezone for cron correctness.
   NODE_ENV         = "production"
-  PORT             = "3001"
+  PORT             = "51280"
   TZ               = "Asia/Kolkata"
   LOG_STDOUT_ONLY  = "1"
   SWINGPRO_DB      = "/app/data/swingpro.db"
@@ -62,7 +62,7 @@ kill_timeout   = "30s"
 
 # ── HTTP service ───────────────────────────────────────────────────────────
 [http_service]
-  internal_port      = 3001
+  internal_port      = 51280
   force_https        = true       # fly issues a wildcard cert automatically
   auto_stop_machines = "off"      # CRITICAL: keep the machine running 24/7
   auto_start_machines = true      #          (cron jobs must fire on schedule)

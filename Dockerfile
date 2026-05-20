@@ -9,7 +9,7 @@
 # pre-compiled .node binary, so it stays lean.
 #
 # Build:  docker build -t swingpro:latest .
-# Run:    docker run --rm -p 3001:3001 --env-file .env -v swingpro-data:/app/data swingpro:latest
+# Run:    docker run --rm -p 51280:51280 --env-file .env -v swingpro-data:/app/data swingpro:latest
 #
 # For docker-compose, see docker-compose.yml.
 
@@ -52,7 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV TZ=Asia/Kolkata \
     NODE_ENV=production \
-    PORT=3001 \
+    PORT=51280 \
     LOG_STDOUT_ONLY=1 \
     SWINGPRO_DB=/app/data/swingpro.db
 
@@ -76,12 +76,12 @@ VOLUME ["/app/data"]
 
 USER swingpro
 
-EXPOSE 3001
+EXPOSE 51280
 
 # Healthcheck — same endpoint the launchd watchdog probes on Mac.
 # Note: the deep /api/health/macro is the canonical check; once cloud
 # deployment adds a lightweight /health endpoint, switch this to that.
 HEALTHCHECK --interval=60s --timeout=8s --start-period=30s --retries=3 \
-  CMD node -e "fetch('http://localhost:'+(process.env.PORT||3001)+'/api/health/macro').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://localhost:'+(process.env.PORT||51280)+'/api/health/macro').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "server.js"]

@@ -47,7 +47,7 @@
         <key>NODE_ENV</key>
         <string>production</string>
         <key>PORT</key>
-        <string>3001</string>
+        <string>51280</string>
         <!-- Add other env vars here if you don't want to rely on the .env file -->
         <key>PATH</key>
         <string>/Users/arindamchowdhury/.nvm/versions/node/v20.19.2/bin:/usr/local/bin:/usr/bin:/bin</string>

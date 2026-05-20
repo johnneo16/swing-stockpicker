@@ -5,7 +5,7 @@
 # Usage:  bash scripts/startAutopilot.sh
 #
 # After this returns, the server will:
-#   - Run on http://localhost:3001/
+#   - Run on http://localhost:51280/
 #   - Auto-fire pre-market scan at 09:00 IST every weekday
 #   - Mark positions to market every 15 min during market hours
 #   - Run exit cycles every 30 min
@@ -54,12 +54,12 @@ disown $SERVER_PID 2>/dev/null || true
 sleep 4
 
 # 4. Verify server came up
-if ! curl -sf --max-time 3 http://localhost:3001/api/health/db > /dev/null; then
+if ! curl -sf --max-time 3 http://localhost:51280/api/health/db > /dev/null; then
   echo "❌ Server didn't come up — check $LOG_FILE"
   tail -20 "$LOG_FILE"
   exit 1
 fi
-echo "  ✓ Server up on http://localhost:3001/ (PID $SERVER_PID)"
+echo "  ✓ Server up on http://localhost:51280/ (PID $SERVER_PID)"
 
 # 5. Start caffeinate to keep Mac awake while server runs
 echo "☕ Starting caffeinate..."
@@ -72,7 +72,7 @@ echo "  ✓ caffeinate up (PID $CAFF_PID) — Mac won't auto-sleep while server 
 # 6. Show orchestrator status
 echo ""
 echo "━━━ Orchestrator status ━━━"
-curl -s http://localhost:3001/api/scheduler/status | python3 -c "
+curl -s http://localhost:51280/api/scheduler/status | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 print(f'  Running: {d[\"running\"]} | Active jobs: {sum(1 for j in d[\"jobs\"] if j[\"active\"])}/{len(d[\"jobs\"])} | Market open: {d[\"isMarketOpen\"]}')
@@ -96,7 +96,7 @@ import('./src/persistence/db.js').then(({ db }) => {
 echo ""
 echo "━━━ ✅ Auto-pilot armed ━━━"
 echo ""
-echo "  • UI:        http://localhost:3001/"
+echo "  • UI:        http://localhost:51280/"
 echo "  • Live log:  tail -f $LOG_FILE"
 echo "  • Status:    bash scripts/checkAutopilot.sh"
 echo "  • Stop:      bash scripts/stopAutopilot.sh"
