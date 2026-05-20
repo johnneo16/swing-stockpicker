@@ -33,9 +33,14 @@
 
     <key>ProgramArguments</key>
     <array>
-        <!-- NODE_BIN: absolute path to the node binary. Find yours with `which node`. -->
-        <string>/Users/arindamchowdhury/.nvm/versions/node/v20.19.2/bin/node</string>
-        <string>server.js</string>
+        <!-- start-server.sh runs `npm run build` then exec's node server.js,
+             so the SPA bundle in dist/ is always rebuilt from the current
+             source on every server start. Prevents the class of bug where
+             UI commits land but the browser still serves a months-old
+             bundle. The wrapper falls back to the existing dist/ if the
+             build fails, so a broken build doesn't take down the engine. -->
+        <string>/bin/bash</string>
+        <string>scripts/start-server.sh</string>
     </array>
 
     <!-- PROJECT_DIR: absolute path to the repo root. -->
