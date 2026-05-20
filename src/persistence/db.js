@@ -463,25 +463,31 @@ export const tradesRepo = {
    * no recent drawdown signal → killswitch falls back to live/leverage
    * /catastrophic-loss triggers).
    *
+   * Important: `startingCapital` must be the PORTFOLIO capital (₹50k for
+   * the default stock pool), NOT the trades.capital field. The latter is
+   * the per-trade position-capital (~₹5-10k); seeding the equity curve
+   * with that produces nonsense DD ~10x larger than reality. The killswitch
+   * pre-fix bug surfaced exactly this: the same misread also affects
+   * journalStats.maxDrawdownPct, which is a known limitation tracked
+   * separately for UI/metrics display.
+   *
    * @param {string} mode 'paper' | 'live'
    * @param {number} windowDays
-   * @returns {{ maxDrawdownPct: number, tradesInWindow: number, windowDays: number }}
+   * @param {number} startingCapital portfolio capital, default 50000
+   * @returns {{ maxDrawdownPct: number, tradesInWindow: number, windowDays: number, startingCapital: number }}
    */
-  rollingDrawdownPct(mode = 'paper', windowDays = 90) {
+  rollingDrawdownPct(mode = 'paper', windowDays = 90, startingCapital = 50000) {
     const cutoff = new Date(Date.now() - windowDays * 86400000).toISOString();
     const trades = db.prepare(
-      `SELECT realized_pnl, capital, exit_date FROM trades
+      `SELECT realized_pnl, exit_date FROM trades
        WHERE status = 'closed' AND mode = ? AND exit_date >= ?
        ORDER BY exit_date ASC`
     ).all(mode, cutoff);
 
     if (trades.length === 0) {
-      return { maxDrawdownPct: 0, tradesInWindow: 0, windowDays };
+      return { maxDrawdownPct: 0, tradesInWindow: 0, windowDays, startingCapital };
     }
 
-    // Reconstruct equity over the window starting at startingCapital
-    // (snapshot from the earliest trade's capital field, falling back to 50k).
-    const startingCapital = trades[0].capital || 50000;
     let equity = startingCapital;
     let peak   = startingCapital;
     let maxDD  = 0;
@@ -495,6 +501,7 @@ export const tradesRepo = {
       maxDrawdownPct: Math.round(maxDD * 100) / 100,
       tradesInWindow: trades.length,
       windowDays,
+      startingCapital,
     };
   },
   getOpen(mode = 'paper', assetClass = null) {

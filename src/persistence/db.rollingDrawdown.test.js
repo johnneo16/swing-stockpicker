@@ -49,7 +49,33 @@ beforeEach(() => {
 describe('tradesRepo.rollingDrawdownPct', () => {
   it('returns 0 when no closed trades fall in the window', () => {
     const r = tradesRepo.rollingDrawdownPct('paper', 90);
-    expect(r).toEqual({ maxDrawdownPct: 0, tradesInWindow: 0, windowDays: 90 });
+    expect(r).toEqual({
+      maxDrawdownPct: 0,
+      tradesInWindow: 0,
+      windowDays: 90,
+      startingCapital: 50000,
+    });
+  });
+
+  it('respects a custom startingCapital parameter — the killswitch bug fix', () => {
+    // Reconstructs the actual scenario that surfaced the bug:
+    // 8 closed trades net -₹903, peak ₹51,022, trough ₹49,097.
+    // With startingCapital=50000 the equity curve gives ~3.77% DD.
+    // The pre-fix code seeded from trades[0].capital (~₹8,103) and
+    // produced ~21.77% DD on the same trade sequence.
+    insertClosed({ exitDaysAgo: 10, pnl: +1022, symbol: 'POLYCAB' });
+    insertClosed({ exitDaysAgo: 7,  pnl:  -410, symbol: 'LT' });
+    insertClosed({ exitDaysAgo: 5,  pnl:  -615, symbol: 'RELIANCE' });
+    insertClosed({ exitDaysAgo: 2,  pnl:  +308, symbol: 'DRREDDY' });
+    insertClosed({ exitDaysAgo: 2,  pnl:  -246, symbol: 'INDUSINDBK' });
+    insertClosed({ exitDaysAgo: 2,  pnl:  -201, symbol: 'TATASTEEL' });
+    insertClosed({ exitDaysAgo: 1,  pnl:  -402, symbol: 'CHOLAFIN' });
+    insertClosed({ exitDaysAgo: 1,  pnl:  -359, symbol: 'HAL' });
+
+    const r = tradesRepo.rollingDrawdownPct('paper', 90, 50000);
+    expect(r.tradesInWindow).toBe(8);
+    expect(r.maxDrawdownPct).toBeCloseTo(3.77, 1);
+    expect(r.startingCapital).toBe(50000);
   });
 
   it('ignores trades older than windowDays — THE killswitch fix', () => {

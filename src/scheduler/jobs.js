@@ -355,7 +355,7 @@ export async function jobRiskKillswitch({
   const totalEquity = (stats.finalEquity || startingCapital) + unrealizedPnl;
   const peak = Math.max(stats.finalEquity || startingCapital, startingCapital);
   const liveDrawdownPct = peak > 0 ? Math.max(0, (peak - totalEquity) / peak * 100) : 0;
-  const rolling = tradesRepo.rollingDrawdownPct('paper', rollingWindowDays);
+  const rolling = tradesRepo.rollingDrawdownPct('paper', rollingWindowDays, capital);
   const drawdown = Math.max(liveDrawdownPct, rolling.maxDrawdownPct);
 
   const triggers = [];
