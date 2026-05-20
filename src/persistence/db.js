@@ -900,6 +900,25 @@ export const schedulerRepo = {
     finishSchedLogStmt.run(status, message, detail ? JSON.stringify(detail) : null, id);
   },
   recent(limit = 50) { return recentSchedLogStmt.all(limit); },
+
+  /**
+   * Has this job had a status='ok' run since the given UTC cutoff?
+   * Used by the orchestrator's catch-up sweep to decide whether a job
+   * whose cron window has passed needs to be fired manually (after a
+   * server restart or Mac wake-from-sleep).
+   *
+   * @param {string} jobId
+   * @param {string} utcCutoffIso  ISO 8601 in UTC
+   * @returns {string|null} started_at of the most recent ok run since cutoff, or null
+   */
+  lastOkRunSince(jobId, utcCutoffIso) {
+    const row = db.prepare(`
+      SELECT started_at FROM scheduler_log
+      WHERE job_id = ? AND status = 'ok' AND started_at >= ?
+      ORDER BY started_at DESC LIMIT 1
+    `).get(jobId, utcCutoffIso);
+    return row?.started_at || null;
+  },
   // Settings (key-value)
   setSetting(key, value) {
     db.prepare(`INSERT INTO scheduler_settings (key, value) VALUES (?, ?)

@@ -490,6 +490,24 @@ app.get('/api/errors', (req, res) => {
 });
 
 /**
+ * POST /api/scheduler/catch-up — fire the catch-up sweep manually.
+ * Useful for verifying recovery after a laptop wake-up or just to force
+ * a missed job to run. Returns { fired: [...], skipped: {...} }.
+ *
+ * Catch-up is also triggered automatically:
+ *   - 5s after server boot
+ *   - whenever the orchestrator's 60s heartbeat detects a >90s gap (sleep)
+ */
+app.post('/api/scheduler/catch-up', async (req, res) => {
+  try {
+    const result = await orchestrator.catchUpNow('api');
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * POST /api/scheduler/killswitch/reset — clear killswitch trip
  */
 app.post('/api/scheduler/killswitch/reset', (req, res) => {

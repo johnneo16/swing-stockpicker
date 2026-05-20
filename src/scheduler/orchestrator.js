@@ -18,13 +18,69 @@
 import cron from 'node-cron';
 import { schedulerRepo } from '../persistence/db.js';
 import { recordError } from '../alerts/errorJournal.js';
+import { isNonTradingDay } from './nseHolidays.js';
+
+const TZ = 'Asia/Kolkata';
+
+// Catch-up registry — jobs that are SAFE to fire late if their scheduled
+// window was missed (server reboot, Mac sleep through 09:00 IST, etc).
+// Idempotency requirement: each handler must produce the right outcome
+// whether fired at its cron time or hours later within the same trading day.
+//
+//   firstFireAtIST: the FIRST scheduled firing of the day, "HH:mm" in IST.
+//     If `now` is past this and there's been no ok run today, catch up.
+//   handlerNotes:   one-line explanation for the next reader.
+//
+// NOT in this list (intentionally — they have side effects that should
+// only happen on their actual cron schedule, not catch-up):
+//   exit-cycle        — could double-close on stale price data
+//   eod-snapshot      — writes equity-curve point, could double-record
+//   risk-killswitch   — triggers on stale state can be wrong
+//   stale-trade-audit — non-critical; let next cron handle it
+//   daily-summary     — could double-Telegram
+//   weekly-backtest   — long-running; user can fire manually if needed
+const CATCHUP_ELIGIBLE = {
+  'pre-market':       { firstFireAtIST: '09:00', handlerNotes: 'idempotent — skips already-open symbols' },
+  'pre-market-etf':   { firstFireAtIST: '09:05', handlerNotes: 'idempotent — skips already-open symbols' },
+  'auto-scan':        { firstFireAtIST: '09:00', handlerNotes: 'idempotent — refreshes scan cache' },
+  'mark-to-market':   { firstFireAtIST: '09:00', handlerNotes: 'idempotent — re-marks all open positions' },
+  'earnings-refresh': { firstFireAtIST: '07:30', handlerNotes: 'idempotent — refreshes NSE calendar' },
+};
+
+// Helper: current wall-clock time projected into IST.
+function nowInIST() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: TZ }));
+}
+
+// Helper: UTC ISO of midnight IST today — the cutoff for "ran today" queries.
+// IST is UTC+5:30; midnight IST = previous-day-18:30 UTC.
+function utcIsoOfTodayIstMidnight() {
+  const ist = nowInIST();
+  ist.setHours(0, 0, 0, 0);                       // midnight IST as Date
+  // The Date object's value is now wall-clock-of-IST-midnight interpreted in
+  // the LOCAL TZ. We need to shift back to true UTC ISO. Easier: compute
+  // the offset between the IST projection and the real Date.
+  const real = new Date();
+  const istNow = new Date(real.toLocaleString('en-US', { timeZone: TZ }));
+  const offsetMs = istNow.getTime() - real.getTime();
+  return new Date(ist.getTime() - offsetMs).toISOString();
+}
+
+// Helper: parse "HH:mm" IST into a real (UTC-anchored) Date for today.
+function istHHmmToday(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const ist = nowInIST();
+  ist.setHours(h, m, 0, 0);
+  const real = new Date();
+  const istNow = new Date(real.toLocaleString('en-US', { timeZone: TZ }));
+  const offsetMs = istNow.getTime() - real.getTime();
+  return new Date(ist.getTime() - offsetMs);
+}
 import {
   jobPreMarket, jobPreMarketETF, jobMarkToMarket, jobExitCycle,
   jobEodSnapshot, jobEarningsRefresh, jobWeeklyBacktest,
   jobRiskKillswitch, jobStaleTradeAudit, jobDailySummary,
 } from './jobs.js';
-
-const TZ = 'Asia/Kolkata';
 
 /**
  * Job registry. Each entry is one cron-triggered task.
@@ -145,6 +201,96 @@ class Orchestrator {
     for (const [id, t] of this.tasks) {
       console.log(`   ✓ ${id.padEnd(18)} ${t.jobConfig.cron.padEnd(20)} ${t.jobConfig.description}`);
     }
+
+    // Boot-time catch-up sweep: if we were restarted or asleep past one of
+    // today's scheduled firings, fire the eligible job once now. Delayed
+    // 5s so DB/imports settle.
+    this._lastHeartbeatMs = Date.now();
+    setTimeout(() => {
+      this._catchUpSweep('boot').catch(err =>
+        console.error('[orchestrator] boot catch-up failed:', err.message)
+      );
+    }, 5000);
+
+    // Sleep-detection heartbeat: a 60s setInterval that should fire ~every
+    // minute. If we observe a gap > 90s since the last tick, the laptop
+    // slept (or the process was paused). Run the catch-up sweep then so
+    // any cron firings that happened during sleep get covered.
+    this._heartbeatTimer = setInterval(() => {
+      const now = Date.now();
+      const gap = now - this._lastHeartbeatMs;
+      this._lastHeartbeatMs = now;
+      if (gap > 90_000) {
+        const gapSec = Math.round(gap / 1000);
+        console.log(`⏰ [orchestrator] detected ${gapSec}s gap between heartbeats — running catch-up sweep`);
+        this._catchUpSweep('wake').catch(err =>
+          console.error('[orchestrator] wake catch-up failed:', err.message)
+        );
+      }
+    }, 60_000);
+  }
+
+  /**
+   * Catch-up sweep. For each idempotent job whose first scheduled firing of
+   * the day has passed but no successful run is logged today, fire it once.
+   *
+   * Called automatically on boot (5s after start) and after any detected
+   * heartbeat gap > 90s (sleep/suspend recovery). Also exposed for tests
+   * and ad-hoc manual triggers.
+   *
+   * Skips entirely on weekends and NSE holidays — those are non-trading
+   * days and the engine shouldn't be scanning.
+   *
+   * @param {string} reason  free-form tag for logging ('boot' / 'wake' / 'manual')
+   * @returns {Promise<{ fired: string[], skipped: object }>}
+   */
+  async _catchUpSweep(reason = 'manual') {
+    const istNow = nowInIST();
+    if (isNonTradingDay(istNow)) {
+      return { fired: [], skipped: { reason: 'non_trading_day' } };
+    }
+
+    const cutoffUtc = utcIsoOfTodayIstMidnight();
+    const fired = [];
+    const skipped = {};
+
+    for (const [jobId, cfg] of Object.entries(CATCHUP_ELIGIBLE)) {
+      // Only fire if we're past the first scheduled firing today
+      const firstFire = istHHmmToday(cfg.firstFireAtIST);
+      if (istNow < firstFire) {
+        skipped[jobId] = 'before_first_fire';
+        continue;
+      }
+
+      // Skip if the job is currently disabled (e.g. killswitch tripped pre-market)
+      const entry = this.tasks.get(jobId);
+      if (!entry) {
+        skipped[jobId] = 'job_disabled';
+        continue;
+      }
+
+      // Skip if there's already a successful run today
+      const lastOk = schedulerRepo.lastOkRunSince(jobId, cutoffUtc);
+      if (lastOk) {
+        skipped[jobId] = `already_ran_at_${lastOk}`;
+        continue;
+      }
+
+      // Fire it
+      console.log(`⏰ [catch-up:${reason}] firing ${jobId} (missed its ${cfg.firstFireAtIST} IST window)`);
+      try {
+        await this.runNow(jobId);
+        fired.push(jobId);
+      } catch (err) {
+        console.error(`⏰ [catch-up:${reason}] ${jobId} failed:`, err.message);
+        skipped[jobId] = `error_${err.message.slice(0, 40)}`;
+      }
+    }
+
+    if (fired.length > 0) {
+      console.log(`⏰ [catch-up:${reason}] done — fired ${fired.length} job(s): ${fired.join(', ')}`);
+    }
+    return { fired, skipped };
   }
 
   _enabledFor(job) {
@@ -253,7 +399,20 @@ class Orchestrator {
   stop() {
     for (const [, t] of this.tasks) t.task.stop();
     this.tasks.clear();
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer);
+      this._heartbeatTimer = null;
+    }
     this.running = false;
+  }
+
+  /**
+   * Public catch-up trigger — exposed via API so the user can force a
+   * sweep from outside (e.g. "did the system catch up after my laptop
+   * woke?"). Same logic as the boot/wake auto-triggers.
+   */
+  async catchUpNow(reason = 'manual') {
+    return this._catchUpSweep(reason);
   }
 }
 
