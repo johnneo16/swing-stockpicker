@@ -15,6 +15,8 @@ import { fetchAngelOneLTP, isAngelOneConfigured } from '../engine/angelOneProvid
 import { CONFIG } from '../engine/riskEngine.js';
 import { reflectOnTrade } from '../intelligence/tradeReflection.js';
 import { correlationGate } from '../intelligence/portfolioRisk.js';
+import { annotateTrade as llmAnnotateTrade } from '../intelligence/bullBearAdvisor.js';
+import { reflectOnTradeLLM } from '../intelligence/tradeReflectionLLM.js';
 import yahooFinance from 'yahoo-finance2';
 
 const USE_ANGELONE = isAngelOneConfigured();
@@ -135,6 +137,25 @@ export async function openPosition(scoredTrade, mode = 'paper', opts = {}) {
     partialTaken:   false,
   });
 
+  // LLM Bull/Bear annotation — fire-and-forget. No-op unless LLM_ENABLED=1.
+  // Failure here never blocks trade entry.
+  llmAnnotateTrade(tradeId, {
+    symbol:         scoredTrade.symbol,
+    sector:         scoredTrade.sector,
+    setupType:      scoredTrade.setupType,
+    direction:      scoredTrade.direction || 'LONG',
+    entryPrice:     scoredTrade.entryPrice,
+    stopLoss:       scoredTrade.stopLoss,
+    targetPrice:    scoredTrade.targetPrice,
+    quantity:       scoredTrade.quantity,
+    riskAmount:     scoredTrade.riskAmount,
+    confidence:     scoredTrade.confidenceScore,
+    rrPlanned:      scoredTrade.riskRewardRatio,
+    estimatedDays:  scoredTrade.estimatedDays,
+    regime:         scoredTrade.regime,
+    earningsFlag:   scoredTrade.earningsFlag,
+  }).catch(() => { /* swallow — see module for graceful degrade */ });
+
   return tradesRepo.getById(tradeId);
 }
 
@@ -161,6 +182,12 @@ export function closePosition(tradeId, exitReason, exitPrice, exitDate = null) {
     db.prepare(
       `UPDATE trades SET reflection_json = ?, reflection_at = datetime('now') WHERE id = ?`
     ).run(JSON.stringify(reflection), tradeId);
+
+    // LLM-driven postmortem — fire-and-forget, runs alongside the
+    // deterministic version. No-op unless LLM_ENABLED=1. Writes to a
+    // separate column (llm_reflection_json) so it never overwrites the
+    // deterministic reflection.
+    reflectOnTradeLLM(closedTrade).catch(() => { /* graceful */ });
   } catch (e) {
     // Never let reflection failure break the close path
     console.warn(`[reflection] Failed for trade ${tradeId}:`, e.message);
