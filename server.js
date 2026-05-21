@@ -714,9 +714,16 @@ app.get('/api/positions/cards', (req, res) => {
   const assetClass = req.query.assetClass || null;
   const positions = listOpenPositions(mode, assetClass);
 
+  // Lookup the most-recent daily_picks payload for analysis text + chart data.
+  //
+  // No `auto_tracked = 1` constraint: positions can be opened via paths that
+  // don't flag auto_tracked (manual opens, fallback flows, pre-M2 trades).
+  // We just want the freshest available analysis text for the symbol; even
+  // if it's a few days stale the technicalReasoning/whyWorks/whyFails are
+  // mostly stable, far better than an empty card.
   const getPayloadStmt = db.prepare(`
     SELECT payload_json FROM daily_picks
-    WHERE symbol = ? AND auto_tracked = 1
+    WHERE symbol = ?
     ORDER BY pick_date DESC LIMIT 1
   `);
 
@@ -743,9 +750,9 @@ app.get('/api/positions/cards', (req, res) => {
 
       // Trade economics — use entry from trades table (source of truth)
       entryPrice:      p.entryPrice,
-      stopLoss:        p.currentStop,        // current — may have moved to BE
-      initialStop:     p.initialStop,
-      targetPrice:     p.target,
+      stopLoss:        round2(p.currentStop),    // current — may have moved to BE
+      initialStop:     round2(p.initialStop),
+      targetPrice:     round2(p.target),
       quantity:        p.quantity,
       capitalRequired: p.capital,
       riskAmount:      p.riskAmount,
@@ -769,14 +776,33 @@ app.get('/api/positions/cards', (req, res) => {
       partialTaken: p.partialTaken,
       trailActive:  p.trailActive,
 
-      // R:R from original payload, computed if missing
-      riskRewardRatio: originalPayload.riskRewardRatio
-        || (p.target - p.entryPrice) / (p.entryPrice - p.initialStop || 1),
+      // R:R always computed from the actual trade levels (initialStop, target,
+      // entryPrice in trades table). The payload's planned R:R can drift from
+      // what was actually opened, especially when initialStop or target were
+      // adjusted between the scoring pass and order placement. Rounded to 2dp
+      // so we never display floats like 2.9999999999999987.
+      riskRewardRatio: computeRiskRewardRatio(p.entryPrice, p.initialStop, p.target),
     };
   });
 
   res.json({ mode, count: cards.length, cards });
 });
+
+// Helper: round to 2 decimal places. Used to scrub float-precision artifacts
+// like 2.9999999999999987 from the position-card payload.
+function round2(n) {
+  if (n == null || !Number.isFinite(n)) return n;
+  return Math.round(n * 100) / 100;
+}
+// Helper: compute risk-reward ratio from the actual trade levels. Returns
+// null if the levels are inconsistent (stop above entry, target below entry).
+function computeRiskRewardRatio(entry, initialStop, target) {
+  if (!Number.isFinite(entry) || !Number.isFinite(initialStop) || !Number.isFinite(target)) return null;
+  const risk = entry - initialStop;
+  const reward = target - entry;
+  if (risk <= 0 || reward <= 0) return null;
+  return Math.round((reward / risk) * 100) / 100;
+}
 
 /**
  * GET /api/equity/today — today's simple P&L summary
