@@ -244,6 +244,7 @@ export default function App() {
         sectorDistribution:  r.sectorDistribution ?? {},
         unrealizedPnl:       r.unrealizedPnl ?? 0,
         unrealizedPct:       r.unrealizedPct ?? 0,
+        alpha30d:            r.alpha30d ?? null,
       }) : null;
 
       const stockP = toPortfolio(stockPort, capital);
