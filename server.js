@@ -26,6 +26,7 @@ import { picksRepo, schedulerRepo, db } from './src/persistence/db.js';
 import { todayStatus, upcomingHolidays, nextTradingDays } from './src/scheduler/jobs.js';
 import { isAngelOneConfigured } from './src/engine/angelOneProvider.js';
 import { portfolioRiskSnapshot } from './src/intelligence/portfolioRisk.js';
+import { computePortfolioAlpha } from './src/intelligence/alphaCalc.js';
 import { recordError, recentErrors } from './src/alerts/errorJournal.js';
 import { isTelegramConfigured } from './src/alerts/telegram.js';
 import fs from 'fs';
@@ -899,7 +900,15 @@ app.get('/api/portfolio/live', (req, res) => {
   const mode       = req.query.mode === 'live' ? 'live' : 'paper';
   const assetClass = req.query.assetClass || null;
   const capital    = parseInt(req.query.capital || getCapitalForClass(assetClass || 'stock'), 10);
-  res.json({ mode, assetClass, ...livePortfolioSummary(mode, capital, assetClass) });
+  const summary = livePortfolioSummary(mode, capital, assetClass);
+  // Alpha tile (vs Nifty over 30d). Non-fatal if computation throws —
+  // missing market_context rows or empty trades table on a fresh DB
+  // shouldn't break the portfolio endpoint.
+  let alpha30d = null;
+  try {
+    alpha30d = computePortfolioAlpha({ mode, assetClass, windowDays: 30, startingCapital: capital });
+  } catch (_) {}
+  res.json({ mode, assetClass, ...summary, alpha30d });
 });
 
 /**
