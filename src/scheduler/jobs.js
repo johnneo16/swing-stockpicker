@@ -11,14 +11,18 @@
  *  - Jobs are *idempotent within the same trading day* — running twice is safe.
  */
 
-import { picksRepo, tradesRepo, schedulerRepo } from '../persistence/db.js';
+import { picksRepo, tradesRepo, schedulerRepo, db } from '../persistence/db.js';
 import {
   openPosition, markAllToMarket, listOpenPositions, portfolioSummary,
 } from '../lifecycle/positionTracker.js';
 import { runExitCycle } from '../lifecycle/exitEngine.js';
-import { refreshEarningsCalendar, isEarningsBlackout } from '../intelligence/earningsFetcher.js';
+import {
+  refreshEarningsCalendar, isEarningsBlackout, listUpcomingEvents,
+} from '../intelligence/earningsFetcher.js';
 import { refreshRegime, getRegime, regimeBias } from '../intelligence/regimeDetector.js';
 import { CONFIG, getCapitalForClass } from '../engine/riskEngine.js';
+import { runEarningsPreview } from '../intelligence/earningsPreview.js';
+import { runStaleTradeReview } from '../intelligence/staleTradeReview.js';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -427,7 +431,171 @@ export async function jobRiskKillswitch({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// JOB: earnings-preview-scan — LLM-driven preview for positions within
+// N days of earnings. Recommends HOLD / TRIM_50 / EXIT before the print.
+// Fires Telegram alert on TRIM/EXIT.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function jobEarningsPreviewScan(opts = {}) {
+  const lookaheadDays = opts.lookaheadDays ?? 5;
+  await markAllToMarket('paper').catch(() => null);
+  const positions = listOpenPositions('paper');
+  const today = new Date().toISOString().slice(0, 10);
+  const cutoff = new Date(Date.now() + lookaheadDays * 86400000).toISOString().slice(0, 10);
+
+  const reviewed = [];
+  for (const pos of positions) {
+    // Find next earnings event in window
+    const events = listUpcomingEvents(lookaheadDays + 1, ['earnings'])
+      .filter(e => e.symbol === pos.symbol && e.event_date >= today && e.event_date <= cutoff);
+    if (events.length === 0) continue;
+    const ev = events[0];
+    const daysToEarnings = Math.max(0, Math.round(
+      (new Date(ev.event_date).getTime() - Date.now()) / 86400000
+    ));
+
+    // Skip if we already ran a preview for this trade in the last 24h
+    const recent = db.prepare(`
+      SELECT 1 FROM earnings_previews
+      WHERE trade_id = ? AND created_at >= datetime('now', '-1 day')
+      LIMIT 1
+    `).get(pos.id);
+    if (recent) continue;
+
+    // Pull bull/bear context from trades table
+    const tradeRow = tradesRepo.getById(pos.id);
+    const result = await runEarningsPreview({
+      tradeId:       pos.id,
+      symbol:        pos.symbol,
+      sector:        pos.sector,
+      direction:     'LONG',
+      entryPrice:    pos.entryPrice,
+      currentPrice:  pos.lastPrice,
+      currentPnlPct: pos.unrealizedPct,
+      stopLoss:      pos.currentStop,
+      targetPrice:   pos.target,
+      rrPlanned:     tradeRow?.rr_planned,
+      daysHeld:      pos.heldDays,
+      estimatedDays: pos.estimatedDays,
+      setupType:     pos.setupType,
+      confidence:    pos.confidence,
+      earningsDate:  ev.event_date,
+      daysToEarnings,
+      bullArgument:  tradeRow?.bull_argument,
+      bearArgument:  tradeRow?.bear_argument,
+    });
+
+    if (result?.recommendation) {
+      reviewed.push({ symbol: pos.symbol, ...result });
+      if (result.recommendation === 'TRIM_50' || result.recommendation === 'EXIT') {
+        const title = result.recommendation === 'EXIT'
+          ? `🚨 EXIT before earnings: ${pos.symbol}`
+          : `⚠️ TRIM 50% before earnings: ${pos.symbol}`;
+        const body = [
+          `Earnings: ${ev.event_date} (${daysToEarnings}d)`,
+          `Current PnL: ${pos.unrealizedPct?.toFixed(2)}%`,
+          `${result.confidence} confidence`,
+          ``,
+          result.rationale,
+        ].filter(Boolean).join('\n');
+        sendTelegram({ level: 'warning', title, body, dedupeKey: `ep:${pos.id}:${ev.event_date}` })
+          .catch(() => null);
+        db.prepare(`UPDATE earnings_previews SET alerted = 1 WHERE id = ?`).run(result.id);
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    message: reviewed.length === 0
+      ? `No upcoming earnings within ${lookaheadDays}d for ${positions.length} open positions`
+      : `${reviewed.length} earnings preview(s) generated`,
+    detail: { reviewed },
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JOB: stale-trade review — LLM thesis review for positions held >1.5×
+// est_days AND at a loss. Recommends CONTINUE_HOLD / TIGHTEN_STOP / EXIT.
+// Telegram alert on EXIT or TIGHTEN_STOP.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function jobStaleTradeReview(opts = {}) {
+  const lossThresholdPct = opts.lossThresholdPct ?? -1.5;
+  const staleMultiplier  = opts.staleMultiplier ?? 1.5;
+  await markAllToMarket('paper').catch(() => null);
+  const positions = listOpenPositions('paper');
+
+  const candidates = positions.filter(p => {
+    const limit = (p.estimatedDays || 10) * staleMultiplier;
+    return p.heldDays > limit && (p.unrealizedPct ?? 0) <= lossThresholdPct;
+  });
+
+  const reviewed = [];
+  for (const pos of candidates) {
+    // Skip if we already reviewed this trade in the last 48h
+    const recent = db.prepare(`
+      SELECT 1 FROM stale_trade_reviews
+      WHERE trade_id = ? AND created_at >= datetime('now', '-2 days')
+      LIMIT 1
+    `).get(pos.id);
+    if (recent) continue;
+
+    const tradeRow = tradesRepo.getById(pos.id);
+    const regime = await getRegime().catch(() => null);
+    const result = await runStaleTradeReview({
+      tradeId:       pos.id,
+      symbol:        pos.symbol,
+      sector:        pos.sector,
+      setupType:     pos.setupType,
+      confidence:    pos.confidence,
+      entryPrice:    pos.entryPrice,
+      currentPrice:  pos.lastPrice,
+      currentPnlPct: pos.unrealizedPct,
+      stopLoss:      pos.currentStop,
+      targetPrice:   pos.target,
+      rrPlanned:     tradeRow?.rr_planned,
+      daysHeld:      pos.heldDays,
+      estimatedDays: pos.estimatedDays,
+      regime:        regime?.regime,
+      bullArgument:  tradeRow?.bull_argument,
+      bearArgument:  tradeRow?.bear_argument,
+      riskVerdict:   tradeRow?.risk_verdict,
+    });
+
+    if (result?.recommendation) {
+      reviewed.push({ symbol: pos.symbol, ...result });
+      if (result.recommendation === 'EXIT' || result.recommendation === 'TIGHTEN_STOP') {
+        const title = result.recommendation === 'EXIT'
+          ? `🚨 EXIT stale loser: ${pos.symbol}`
+          : `⚠️ TIGHTEN STOP: ${pos.symbol} → ₹${result.suggested_stop}`;
+        const body = [
+          `Held ${pos.heldDays}d (est. ${pos.estimatedDays}, ${(pos.heldDays / Math.max(pos.estimatedDays, 1)).toFixed(1)}× over)`,
+          `PnL: ${pos.unrealizedPct?.toFixed(2)}%`,
+          `Thesis intact: ${result.thesis_still_intact ? 'yes' : 'NO'}`,
+          ``,
+          result.rationale,
+        ].filter(Boolean).join('\n');
+        sendTelegram({ level: 'warning', title, body, dedupeKey: `str:${pos.id}` })
+          .catch(() => null);
+        db.prepare(`UPDATE stale_trade_reviews SET alerted = 1 WHERE id = ?`).run(result.id);
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    message: candidates.length === 0
+      ? 'No stale losing trades'
+      : `${reviewed.length}/${candidates.length} stale trade review(s) generated`,
+    detail: { reviewed, candidatesCount: candidates.length },
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // JOB: stale-trade audit — flags positions past 1.5× their estimated hold
+// (preserved as the lightweight non-LLM version; new LLM-driven review is
+// jobStaleTradeReview above)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function jobStaleTradeAudit() {

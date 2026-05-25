@@ -80,6 +80,7 @@ import {
   jobPreMarket, jobPreMarketETF, jobMarkToMarket, jobExitCycle,
   jobEodSnapshot, jobEarningsRefresh, jobWeeklyBacktest,
   jobRiskKillswitch, jobStaleTradeAudit, jobDailySummary,
+  jobEarningsPreviewScan, jobStaleTradeReview,
 } from './jobs.js';
 
 /**
@@ -161,6 +162,20 @@ function buildJobs(ctx) {
       description: 'Flag positions held 1.5× longer than their estimated holding period',
       default: true,
       handler: () => jobStaleTradeAudit(),
+    },
+    {
+      id: 'earnings-preview-scan',
+      cron: '30 8 * * 1-5',                 // 08:30 IST daily
+      description: 'LLM preview for open positions ≤5 days from earnings — alerts on TRIM/EXIT',
+      default: true,
+      handler: () => jobEarningsPreviewScan({ lookaheadDays: 5 }),
+    },
+    {
+      id: 'stale-trade-review',
+      cron: '30 16 * * 1-5',                // 16:30 IST daily — after EOD + killswitch
+      description: 'LLM thesis review for positions >1.5× est_days at a loss — alerts on EXIT/TIGHTEN_STOP',
+      default: true,
+      handler: () => jobStaleTradeReview(),
     },
     {
       id: 'daily-summary',
