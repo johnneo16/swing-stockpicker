@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Briefcase, TrendingUp, Banknote, Target, Zap, BarChart2, Pencil, Check } from 'lucide-react';
+import { Briefcase, TrendingUp, Banknote, Target, Zap, BarChart2, Pencil, Check, Award } from 'lucide-react';
 
 export default function PortfolioSummary({ portfolio, capital, onCapitalChange }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -122,6 +122,52 @@ export default function PortfolioSummary({ portfolio, capital, onCapitalChange }
           <div className="progress-fill" style={{ width: `${Math.min(deploymentPct, 100)}%` }}></div>
         </div>
       </div>
+
+      {/* Alpha vs Nifty (30d). Replaces the "feels like I'm losing in a bullish
+          market" gut-feel with a real number. Source: alphaCalc.js. */}
+      {portfolio.alpha30d?.hasData && (
+        <div style={{ marginTop: '18px', paddingTop: '18px', borderTop: '1px solid var(--border-subtle)' }}>
+          <div className="analysis-title" style={{ marginBottom: '10px' }}>
+            <Award size={14} className="inline-icon"/> Alpha vs Nifty (30d)
+          </div>
+          <div className="portfolio-stat" style={{ marginBottom: '4px' }}>
+            <span className="portfolio-stat-label">Your P&amp;L</span>
+            <span className="portfolio-stat-value" style={{
+              color: portfolio.alpha30d.portfolioPnlPct >= 0 ? 'var(--profit)' : 'var(--loss)',
+            }}>
+              {portfolio.alpha30d.portfolioPnlPct >= 0 ? '+' : ''}{portfolio.alpha30d.portfolioPnlPct}%
+              <span style={{ fontSize: '0.75rem', opacity: 0.7, marginLeft: 6 }}>
+                (₹{portfolio.alpha30d.portfolioPnlRupees?.toLocaleString('en-IN')}, {portfolio.alpha30d.tradesInWindow}t)
+              </span>
+            </span>
+          </div>
+          <div className="portfolio-stat" style={{ marginBottom: '4px' }}>
+            <span className="portfolio-stat-label">Nifty 50</span>
+            <span className="portfolio-stat-value" style={{
+              color: portfolio.alpha30d.niftyChangePct >= 0 ? 'var(--profit)' : 'var(--loss)',
+            }}>
+              {portfolio.alpha30d.niftyChangePct >= 0 ? '+' : ''}{portfolio.alpha30d.niftyChangePct}%
+            </span>
+          </div>
+          <div className="portfolio-stat" style={{
+            marginTop: 6, paddingTop: 6, borderTop: '1px dashed var(--border-subtle)',
+            fontWeight: 600,
+          }}>
+            <span className="portfolio-stat-label">Alpha</span>
+            <span className="portfolio-stat-value" style={{
+              color: portfolio.alpha30d.alphaPct >= 0 ? 'var(--profit)' : 'var(--loss)',
+              fontSize: '1rem',
+            }}>
+              {portfolio.alpha30d.alphaPct >= 0 ? '+' : ''}{portfolio.alpha30d.alphaPct}%
+            </span>
+          </div>
+          {portfolio.alpha30d.alphaPct < 0 && (
+            <div style={{ fontSize: '0.7rem', opacity: 0.65, marginTop: 6, fontStyle: 'italic' }}>
+              Underperforming Nifty buy-and-hold by {Math.abs(portfolio.alpha30d.alphaPct)}%.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Sector Distribution */}
       {portfolio.sectorDistribution && Object.keys(portfolio.sectorDistribution).length > 0 && (

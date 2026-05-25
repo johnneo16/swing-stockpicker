@@ -420,9 +420,26 @@ export function rankAndFilterTrades(scoredStocks, totalCapital = null, options =
   //   50-59  n= 30  win=40%  exp=-0.09%    ← actively losing
   // After 0.2% round-trip commission, the 60-69 bucket goes negative.
   // Threshold 65 keeps the elite bucket + the top half of the middle one
-  // (Pass-2 fills any remaining slots with no floor for diversification).
+  // (Pass-2 fills any remaining slots with floor 60 — May 2026 loss-control).
+  //
+  // DISABLED_SETUPS (2026-05-25): three setup types had 0/4 winners in the
+  // May 4-18 drawdown window. Auto-blocked here pending a positive backtest
+  // re-validation. Review on 2026-06-25.
+  //   - Three White Soldiers   (0/2 winners, -₹861)
+  //   - Breakout (raw)         (0/1 winners, -₹402, panic_loss exit)
+  //   - Breakout + ADX Trend   (0/1 winners, -₹359, panic_loss exit)
+  // Toggle via env: DISABLED_SETUPS="..,.." (comma-separated). Default = the 3 above.
+  // To re-enable, set DISABLED_SETUPS="" in .env and restart.
+  const DEFAULT_DISABLED = 'Three White Soldiers,Breakout,Breakout + ADX Trend';
+  const disabledSetups = new Set(
+    (process.env.DISABLED_SETUPS ?? DEFAULT_DISABLED).split(',').map(s => s.trim()).filter(Boolean)
+  );
   const selectedTrades = [];
   for (const trade of valid) {
+    if (disabledSetups.has(trade.setupType)) {
+      trade.blockedReason = `setup disabled (auto-kill): ${trade.setupType}`;
+      continue;
+    }
     if (trade.riskRewardRatio < 1.5) continue;
     if (trade.confidenceScore < 65) continue;
     // ADX trend-strength gate (Varsity TA ch.20): refuse trending setups
@@ -443,11 +460,17 @@ export function rankAndFilterTrades(scoredStocks, totalCapital = null, options =
     if (selectedTrades.length >= maxResults) break;
   }
 
-  // Pass 2: fill remaining slots from best available, no score floor
+  // Pass 2: fill remaining slots from best available with a 60-floor.
+  // Was: no floor at all → ONGC opened at confidence 53 (May 2026) and
+  // produced a -2.7% drag on portfolio. Pass-2 fillers ALSO honor
+  // DISABLED_SETUPS, so a re-enabled-but-still-losing setup can't sneak
+  // through here.
   if (selectedTrades.length < maxResults) {
     const selectedSymbols = new Set(selectedTrades.map(t => t.symbol));
     for (const trade of valid) {
       if (selectedSymbols.has(trade.symbol)) continue;
+      if (disabledSetups.has(trade.setupType)) continue;
+      if (trade.confidenceScore < 60) continue;
       if (trade.riskRewardRatio < 1.0) continue;
       const validation = validateTrade(trade, selectedTrades, totalCapital, options);
       if (validation.valid) {

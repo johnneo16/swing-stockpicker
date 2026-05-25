@@ -18,6 +18,12 @@ const MAX_PORTFOLIO_VAR_PCT    = 4.0;    // alert/refuse if 95% 1-day VaR > 4% o
 const VAR_LOOKBACK_DAYS        = 60;     // rolling window for VaR + correlation
 const MIN_RISK_REWARD = 1.5;             // Minimum 1:1.5 risk-reward
 const MAX_CAPITAL_PER_TRADE = 0.20;      // Cap single trade at 20% of portfolio
+const MIN_CONFIDENCE_FLOOR = 60;         // Hard floor: never open a trade below this
+                                         // confidence score (2026-05-25 loss-control).
+                                         // Defense-in-depth — also enforced in scoring
+                                         // engine Pass-1/Pass-2 and jobs.js filter,
+                                         // but lives here too so manual opens via the
+                                         // UI can never bypass it.
 
 /**
  * Look up capital allocated to an asset class.
@@ -133,6 +139,14 @@ export function validateTrade(trade, existingTrades = [], totalCapital = null, o
   // 1. Risk-reward filter
   if (trade.riskRewardRatio < MIN_RISK_REWARD) {
     issues.push(`Risk-reward ratio ${trade.riskRewardRatio} is below minimum ${MIN_RISK_REWARD}`);
+  }
+
+  // 1b. Confidence floor — hard block below the MIN_CONFIDENCE_FLOOR.
+  // Defense-in-depth: scoringEngine + jobs.js also enforce this, but
+  // anything calling validateTrade directly (manual UI opens, future
+  // CLI tools) hits the same wall here.
+  if (trade.confidenceScore != null && trade.confidenceScore < MIN_CONFIDENCE_FLOOR) {
+    issues.push(`Confidence ${trade.confidenceScore} below floor ${MIN_CONFIDENCE_FLOOR}`);
   }
 
   // 2. Max concurrent trades

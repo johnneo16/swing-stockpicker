@@ -27,7 +27,7 @@ describe('rankAndFilterTrades — Pass-1 score floor (65)', () => {
     expect(r.trades[0].lowConfidence).toBe(false);
   });
 
-  it('refuses scores < 65 in Pass 1 but backfills via Pass 2 with lowConfidence=true', () => {
+  it('refuses scores < 65 in Pass 1 but backfills via Pass 2 with lowConfidence=true (when ≥60 floor)', () => {
     const r = rankAndFilterTrades([trade({ symbol: 'X', confidenceScore: 60 })], 50000);
     expect(r.trades).toHaveLength(1);
     expect(r.trades[0].lowConfidence).toBe(true);
@@ -71,7 +71,7 @@ describe('rankAndFilterTrades — R:R floor 1.5', () => {
 describe('rankAndFilterTrades — ADX gate (Varsity ch.20)', () => {
   it('refuses trending setups when ADX < 25', () => {
     const r = rankAndFilterTrades([
-      trade({ symbol: 'A', setupType: 'Breakout', indicators: { adx: 20, mtf: null } }),
+      trade({ symbol: 'A', setupType: 'MACD Crossover', indicators: { adx: 20, mtf: null } }),
     ], 50000);
     // ADX block in Pass 1 → flows to Pass 2 → admitted with lowConfidence=true
     // (Pass 2 bypasses ADX gate by design — fills slots when Pass 1 is thin)
@@ -81,7 +81,7 @@ describe('rankAndFilterTrades — ADX gate (Varsity ch.20)', () => {
 
   it('admits trending setups when ADX >= 25 (Varsity threshold)', () => {
     const r = rankAndFilterTrades([
-      trade({ symbol: 'A', setupType: 'Breakout', indicators: { adx: 25, mtf: null } }),
+      trade({ symbol: 'A', setupType: 'MACD Crossover', indicators: { adx: 25, mtf: null } }),
     ], 50000);
     expect(r.trades[0].lowConfidence).toBe(false);
     expect(r.trades[0].blockedReason).toBeUndefined();
@@ -103,7 +103,7 @@ describe('rankAndFilterTrades — ADX gate (Varsity ch.20)', () => {
 
   it('passes through when ADX is not provided (no data → no gate)', () => {
     const r = rankAndFilterTrades([
-      trade({ symbol: 'A', setupType: 'Breakout', indicators: { mtf: null } }),
+      trade({ symbol: 'A', setupType: 'MACD Crossover', indicators: { mtf: null } }),
     ], 50000);
     expect(r.trades[0].lowConfidence).toBe(false);
   });
@@ -112,7 +112,7 @@ describe('rankAndFilterTrades — ADX gate (Varsity ch.20)', () => {
 describe('rankAndFilterTrades — MTF gate (Varsity Finale ch.19 + Dow)', () => {
   it('refuses trending longs when weekly trend is DOWN', () => {
     const r = rankAndFilterTrades([
-      trade({ symbol: 'A', setupType: 'Breakout',
+      trade({ symbol: 'A', setupType: 'MACD Crossover',
               indicators: { adx: 30, mtf: { weeklyTrend: 'down', weeklySlopePct: -0.8 } } }),
     ], 50000);
     expect(r.trades[0].blockedReason).toMatch(/Weekly trend is DOWN/);
@@ -120,7 +120,7 @@ describe('rankAndFilterTrades — MTF gate (Varsity Finale ch.19 + Dow)', () => 
 
   it('admits trending longs when weekly trend is UP', () => {
     const r = rankAndFilterTrades([
-      trade({ symbol: 'A', setupType: 'Breakout',
+      trade({ symbol: 'A', setupType: 'MACD Crossover',
               indicators: { adx: 30, mtf: { weeklyTrend: 'up', weeklySlopePct: 1.2 } } }),
     ], 50000);
     expect(r.trades[0].lowConfidence).toBe(false);
@@ -136,10 +136,53 @@ describe('rankAndFilterTrades — MTF gate (Varsity Finale ch.19 + Dow)', () => 
 
   it('passes through when weeklyTrend is unknown (no signal → no gate)', () => {
     const r = rankAndFilterTrades([
-      trade({ symbol: 'A', setupType: 'Breakout',
+      trade({ symbol: 'A', setupType: 'MACD Crossover',
               indicators: { adx: 30, mtf: { weeklyTrend: 'unknown' } } }),
     ], 50000);
     expect(r.trades[0].lowConfidence).toBe(false);
+  });
+});
+
+describe('rankAndFilterTrades — DISABLED_SETUPS (May 2026 loss-control)', () => {
+  it('blocks Three White Soldiers from Pass-1 AND Pass-2', () => {
+    const r = rankAndFilterTrades([
+      trade({ symbol: 'TWS', confidenceScore: 90, setupType: 'Three White Soldiers' }),
+    ], 50000);
+    expect(r.trades).toHaveLength(0);
+  });
+  it('blocks Breakout (raw)', () => {
+    const r = rankAndFilterTrades([
+      trade({ symbol: 'BO', confidenceScore: 90, setupType: 'Breakout' }),
+    ], 50000);
+    expect(r.trades).toHaveLength(0);
+  });
+  it('blocks Breakout + ADX Trend', () => {
+    const r = rankAndFilterTrades([
+      trade({ symbol: 'BOA', confidenceScore: 90, setupType: 'Breakout + ADX Trend' }),
+    ], 50000);
+    expect(r.trades).toHaveLength(0);
+  });
+  it('lets non-disabled trending setups through', () => {
+    const r = rankAndFilterTrades([
+      trade({ symbol: 'OK', confidenceScore: 75, setupType: 'HH/HL Trend Continuation' }),
+    ], 50000);
+    expect(r.trades).toHaveLength(1);
+  });
+});
+
+describe('rankAndFilterTrades — Pass-2 confidence floor (60)', () => {
+  it('blocks Pass-2 fillers below confidence 60', () => {
+    const r = rankAndFilterTrades([
+      trade({ symbol: 'LOW', confidenceScore: 55, setupType: 'HH/HL Trend Continuation' }),
+    ], 50000);
+    expect(r.trades).toHaveLength(0);
+  });
+  it('admits Pass-2 fillers at exactly 60 (boundary)', () => {
+    const r = rankAndFilterTrades([
+      trade({ symbol: 'EDGE', confidenceScore: 60, setupType: 'HH/HL Trend Continuation' }),
+    ], 50000);
+    expect(r.trades).toHaveLength(1);
+    expect(r.trades[0].lowConfidence).toBe(true);
   });
 });
 
