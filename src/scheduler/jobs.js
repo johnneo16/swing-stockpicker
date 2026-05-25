@@ -141,10 +141,16 @@ export async function jobPreMarket(ctx = {}) {
     if (!blockedReason && t.lowConfidence) {
       blockedReason = `low confidence (Pass-2 filler)`;
     }
-    // Filter 4: regime score nudge (drop if score below adjusted floor)
+    // Filter 4: regime score nudge (drop if score below adjusted floor).
+    // Floor raised 50→60 on 2026-05-25 after loss diagnosis showed sub-60
+    // confidence trades produced the worst recent drawdowns (ONGC @ 53 →
+    // -2.7% drag; 8-trade window had losses avg score 61.5 vs wins 63.5,
+    // meaning the score doesn't discriminate inside the 50-65 band).
+    // The new 60-floor cuts the actively-losing bucket entirely. Defense-
+    // in-depth: scoringEngine's Pass-2 also enforces 60-floor now.
     const nudge = bias.scoreNudge ?? 0;
-    if (!blockedReason && (t.confidenceScore + nudge) < 50) {
-      blockedReason = `score ${t.confidenceScore}+${nudge} below floor 50`;
+    if (!blockedReason && (t.confidenceScore + nudge) < 60) {
+      blockedReason = `score ${t.confidenceScore}+${nudge} below floor 60`;
     }
     // Filter 5: portfolio at/over capacity — block here so the pick is still
     //          recorded and visible in the UI with a clear reason
